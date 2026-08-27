@@ -1,10 +1,15 @@
+import sys
+import os
+# Fix for Vercel: add the backend directory to Python path
+# so that database.py, models.py, schemas.py etc. can be found
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import datetime
 import random
 import io
 import math
 import json
 import urllib.request
-import os
 
 from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Request
 from fastapi.exceptions import RequestValidationError
