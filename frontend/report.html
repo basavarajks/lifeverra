@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Unauthorized Access - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap">
+  <div class="card">
+    <p class="sub">Report a doctor if you find unauthorized access to your record.</p>
+    <label>Doctor's Email (from your Access History)</label>
+    <input id="docEmail" placeholder="dr.ravi@apollo.com">
+    <label>Reason</label>
+    <select id="reason">
+      <option>Accessed my records without permission</option>
+      <option>Shared my information with someone else</option>
+      <option>Accessed after I revoked access</option>
+      <option>Other</option>
+    </select>
+    <label>Additional Details (Optional)</label>
+    <textarea id="details" rows="4" placeholder="Write more details..."></textarea>
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <div id="ok" class="success-msg" style="display:none;"></div>
+    <button class="btn danger" id="submitBtn" onclick="submit()">Submit Complaint</button>
+    <div class="link-btn" onclick="location.href='complaint-status.html'">View my complaints →</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('report');
+async function submit(){
+  const err = document.getElementById('err'); hideError(err);
+  const ok = document.getElementById('ok'); ok.style.display = 'none';
+  const docEmail = document.getElementById('docEmail').value.trim();
+  if(!docEmail){ showError(err, "Enter the doctor's email."); return; }
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = "Submitting...";
+  try{
+    const data = await apiFetch('/api/complaint', {method:'POST', body:{
+      patient_lifeverra_id: localStorage.getItem('lvr_patient_id'),
+      doctor_email_reported: docEmail,
+      reason: document.getElementById('reason').value,
+      details: document.getElementById('details').value.trim(),
+    }});
+    ok.textContent = 'Complaint filed. Reference: ' + data.complaint_ref;
+    ok.style.display = 'block';
+    document.getElementById('docEmail').value = '';
+    document.getElementById('details').value = '';
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Submit Complaint";
+  }
+}
+</script>
+</body>
+</html>

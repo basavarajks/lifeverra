@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Mode - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+
+<!-- STEP 0: confirmation -->
+<div class="wrap" id="confirmScreen">
+  <div class="card" style="text-align:center;">
+    <h2>Emergency Mode</h2>
+    <p class="sub">LifeVerra will prepare your emergency information, current location and recommended hospital.</p>
+    <button class="btn danger" onclick="startEmergency()">CONFIRM EMERGENCY</button>
+    <button class="btn outline" onclick="location.href='dashboard.html'">CANCEL</button>
+  </div>
+</div>
+
+<!-- STEP 1: triage questions -->
+<div class="wrap" id="triageScreen" style="display:none;">
+  <div class="card">
+    <h2 style="font-size:16px;">Quick Emergency Check</h2>
+    <p class="sub">Answer honestly — this takes 15 seconds and helps find the right hospital.</p>
+    <div id="triageQuestions"></div>
+    <button class="btn danger" id="triageNextBtn" onclick="submitTriage()">Continue</button>
+    <div class="link-btn" onclick="skipTriage()">Skip — go straight to emergency screen</div>
+  </div>
+</div>
+
+<!-- STEP 2: full emergency mode screen -->
+<div class="emg-mode" id="emgScreen" style="display:none;">
+  <div class="emg-topbar">🚨 EMERGENCY MODE</div>
+  <div class="wrap" style="max-width:520px;">
+
+    <div class="emg-section">
+      <h3>Triage</h3>
+      <span class="emg-triage-badge" id="triageBadge">—</span>
+      <p id="triageCondition" style="margin:10px 0 0;font-size:13px;color:#cfe0ee;"></p>
+      <div class="disclaimer-box" id="triageDisclaimer"></div>
+    </div>
+
+    <div class="emg-section">
+      <h3>Current Location</h3>
+      <p id="locStatus" style="margin:0;font-size:14px;">📍 Detecting…</p>
+    </div>
+
+    <div class="emg-section">
+      <h3>Recommended Hospital</h3>
+      <div id="hospStatus">Searching nearby hospitals…</div>
+    </div>
+
+    <div class="emg-section">
+      <h3>Emergency Actions</h3>
+      <div class="emg-call-grid">
+        <button class="emg-call-btn c108" onclick="dialNumber('108','Ambulance')"><span class="ic">🚑</span>CALL 108</button>
+        <button class="emg-call-btn cparent" id="parentBtn" onclick="callParent()"><span class="ic">📞</span>CALL PARENT</button>
+        <button class="emg-call-btn ccontact" id="contactBtn" onclick="callContact()"><span class="ic">📱</span>EMERGENCY CONTACT</button>
+        <button class="emg-call-btn cdirections" id="directionsBtn" onclick="openDirections()" disabled><span class="ic">🗺️</span>GET DIRECTIONS</button>
+        <button class="emg-call-btn cqr" onclick="location.href='qr-code.html'" style="grid-column:1/3;"><span class="ic">🔳</span>SHOW MEDICAL QR</button>
+      </div>
+      <p style="font-size:11px;color:#9fb3ca;margin-top:10px;">Your phone will open the emergency ambulance service number. LifeVerra cannot dispatch an ambulance directly — the emergency service handles dispatch after you call.</p>
+    </div>
+
+    <button class="btn outline" style="background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.25);" onclick="endEmergency()">End Emergency Mode</button>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+let profile = null;
+let triageAnswers = {};
+let triageResult = null;
+let liveLocation = null;
+let recommendedHospital = null;
+let emergencyEventId = null;
+
+apiFetch('/api/patient/me').then(p => { profile = p; }).catch(()=>{});
+
+function startEmergency(){
+  document.getElementById('confirmScreen').style.display = 'none';
+  loadTriageQuestions();
+}
+
+async function loadTriageQuestions(){
+  document.getElementById('triageScreen').style.display = 'block';
+  try{
+    const data = await apiFetch('/api/triage/questions', {auth:false});
+    const el = document.getElementById('triageQuestions');
+    el.innerHTML = data.questions.map(q => `
+      <div class="tri-question">
+        <div class="q">${q.text}</div>
+        <div class="tri-toggle" data-key="${q.key}">
+          <button class="yes" onclick="setAnswer('${q.key}', true, this)">Yes</button>
+          <button class="no active" onclick="setAnswer('${q.key}', false, this)">No</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('triageQuestions').innerHTML = '<p class="sub">Could not load triage questions. You can skip and continue.</p>';
+  }
+}
+
+function setAnswer(key, value, btn){
+  triageAnswers[key] = value;
+  const group = btn.parentElement;
+  group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function submitTriage(){
+  const btn = document.getElementById('triageNextBtn');
+  btn.disabled = true; btn.textContent = 'Analyzing…';
+  try{
+    triageResult = await apiFetch('/api/triage', {method:'POST', body:{answers: triageAnswers}, auth:false});
+  }catch(e){
+    triageResult = {triage:'GREEN', triage_label:'GREEN — LOW RISK', condition:'Unknown', required_facilities:['emergency'], disclaimer:''};
+  }
+  proceedToEmergencyScreen();
+}
+
+function skipTriage(){
+  triageResult = {triage:'YELLOW', triage_label:'YELLOW — MODERATE', condition:'Not assessed (skipped)',
+                   required_facilities:['emergency'], message:'Prompt medical evaluation is recommended.',
+                   disclaimer:'AI triage is an emergency-support tool and does not replace professional medical diagnosis.'};
+  proceedToEmergencyScreen();
+}
+
+function proceedToEmergencyScreen(){
+  document.getElementById('triageScreen').style.display = 'none';
+  document.getElementById('emgScreen').style.display = 'block';
+
+  const badge = document.getElementById('triageBadge');
+  badge.textContent = triageResult.triage_label;
+  badge.className = 'emg-triage-badge ' + triageResult.triage;
+  document.getElementById('triageCondition').textContent = triageResult.condition + (triageResult.message ? ' — ' + triageResult.message : '');
+  document.getElementById('triageDisclaimer').textContent = triageResult.disclaimer || 'AI triage is an emergency-support tool and does not replace professional medical diagnosis.';
+
+  locateAndRecommend();
+}
+
+async function locateAndRecommend(){
+  try{
+    liveLocation = await getLiveLocation();
+    document.getElementById('locStatus').textContent = `📍 Location detected (±${Math.round(liveLocation.accuracy)}m)`;
+    await findHospital();
+  }catch(err){
+    document.getElementById('locStatus').textContent = '⚠️ ' + err.message;
+    document.getElementById('hospStatus').innerHTML = '<p style="font-size:13px;color:#cfe0ee;">Enable location access to get a hospital recommendation. You can still call 108 or your emergency contact now.</p>';
+  }
+  activateEmergencyEvent();
+}
+
+async function findHospital(){
+  try{
+    const rec = await apiFetch('/api/hospitals/recommend', {method:'POST', auth:false, body:{
+      latitude: liveLocation.latitude, longitude: liveLocation.longitude,
+      condition: triageResult.condition, triage_level: triageResult.triage,
+      required_facilities: triageResult.required_facilities,
+    }});
+    if(!rec.hospital){
+      document.getElementById('hospStatus').innerHTML = `<p style="font-size:13px;">${rec.reason}</p>`;
+      return;
+    }
+    recommendedHospital = rec.hospital;
+    document.getElementById('hospStatus').innerHTML = `
+      <div style="font-weight:700;font-size:15px;">🏥 ${rec.hospital.name}</div>
+      <div style="font-size:12.5px;color:#cfe0ee;margin:4px 0;">📍 ${rec.hospital.distance_km} km · ⏱️ ${rec.hospital.travel_minutes} min</div>
+      <div style="margin:8px 0;">${rec.hospital.matched_facilities.map(f=>`<span class="facility-tag yes">✓ ${f}</span>`).join('')}${rec.hospital.missing_facilities.map(f=>`<span class="facility-tag no">✗ ${f}</span>`).join('')}${rec.hospital.unknown_facilities.map(f=>`<span class="facility-tag unknown">? ${f}</span>`).join('')}</div>
+      <div style="font-size:12px;color:#9fb3ca;">Why this hospital? ${rec.reason}</div>
+      ${!rec.hospital.facilities_verified ? '<div class="unverified-note" style="color:#e2a03f;">Facility information not independently verified — call ahead to confirm.</div>' : ''}
+    `;
+    document.getElementById('directionsBtn').disabled = false;
+  }catch(e){
+    document.getElementById('hospStatus').innerHTML = `<p style="font-size:13px;color:#ff8b83;">Could not search nearby hospitals: ${e.message}</p>`;
+  }
+}
+
+async function activateEmergencyEvent(){
+  try{
+    const res = await apiFetch('/api/emergency/activate', {method:'POST', body:{
+      latitude: liveLocation ? liveLocation.latitude : null,
+      longitude: liveLocation ? liveLocation.longitude : null,
+      triage_level: triageResult.triage, condition: triageResult.condition,
+      recommended_hospital_id: recommendedHospital ? recommendedHospital.hospital_id : null,
+      recommended_hospital_name: recommendedHospital ? recommendedHospital.name : '',
+    }});
+    emergencyEventId = res.event_id;
+  }catch(e){ /* non-fatal - calling/directions still work offline */ }
+}
+
+function primaryContact(){
+  if(!profile || !profile.emergency_contacts || !profile.emergency_contacts.length) return null;
+  return profile.emergency_contacts.find(c => c.is_primary) || profile.emergency_contacts[0];
+}
+
+function callParent(){
+  const guardian = profile && profile.guardian_phone;
+  if(guardian){ dialNumber(guardian, 'Parent/Guardian'); return; }
+  const c = primaryContact();
+  if(c){ dialNumber(c.phone, c.name); return; }
+  showToast('No parent/guardian number saved. Add one in Emergency Contacts.');
+}
+
+function callContact(){
+  const c = primaryContact();
+  if(c){ dialNumber(c.phone, c.name); return; }
+  showToast('No emergency contact saved yet.');
+}
+
+function openDirections(){
+  if(!recommendedHospital){ showToast('No recommended hospital yet.'); return; }
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${recommendedHospital.latitude},${recommendedHospital.longitude}&travelmode=driving`, '_blank');
+}
+
+async function endEmergency(){
+  if(emergencyEventId){
+    try{ await apiFetch(`/api/emergency/${emergencyEventId}/deactivate`, {method:'POST'}); }catch(e){}
+  }
+  location.href = 'dashboard.html';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Complaint Status - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap">
+  <div id="list"><p class="sub">Loading...</p></div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('report');
+function statusBadge(s){
+  if(s === 'Resolved') return '<span class="badge green">Resolved</span>';
+  if(s === 'Dismissed') return '<span class="badge red">Dismissed</span>';
+  return '<span class="badge amber">Under Investigation</span>';
+}
+async function load(){
+  try{
+    const list = await apiFetch('/api/complaints');
+    const el = document.getElementById('list');
+    if(list.length === 0){ el.innerHTML = '<div class="card"><p class="sub">No complaints filed.</p></div>'; return; }
+    el.innerHTML = list.map(c => `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h2 style="font-size:15px;">Complaint ${c.complaint_ref}</h2>
+          ${statusBadge(c.status)}
+        </div>
+        <div class="info-row"><span class="k">Reported</span><span class="v">${c.doctor_email_reported}</span></div>
+        <div class="info-row"><span class="k">Reason</span><span class="v">${c.reason}</span></div>
+        <div class="info-row"><span class="k">Filed</span><span class="v">${new Date(c.created_at).toLocaleDateString()}</span></div>
+        ${c.details ? `<p class="sub">${c.details}</p>` : ''}
+        <p class="sub">We'll notify you once the investigation is complete.</p>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('list').innerHTML = '<div class="card"><p class="sub">' + e.message + '</p></div>';
+  }
+}
+load();
+</script>
+</body>
+</html>

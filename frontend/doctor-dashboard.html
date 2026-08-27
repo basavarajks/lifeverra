@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doctor Dashboard - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1 id="welcome">Dashboard</h1></div>
+<div class="wrap">
+  <div id="statusBanner"></div>
+
+  <div class="card">
+    <h2>Scan Patient QR</h2>
+    <p class="sub">Scan the QR code on the patient's phone or lock screen.</p>
+    <button class="btn" onclick="scanCamera()" id="scanBtn">📷 Scan QR Code</button>
+    <div class="link-btn" onclick="toggleManual()">Or enter the LifeVerra ID manually</div>
+    <div id="manualEntry" style="display:none;margin-top:10px;">
+      <input id="scanId" placeholder="e.g. LVERRA-2026-12345">
+      <button class="btn outline" onclick="scan()">Access Patient Records</button>
+    </div>
+    <div id="err" class="error-msg" style="display:none;"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:15px;">Recent Access</h2>
+    <div id="recent">Loading...</div>
+  </div>
+
+  <div class="card">
+    <button class="btn outline" onclick="logout()">Logout</button>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="scanner.js"></script>
+<script>
+requireDoctorAuth();
+const roleLabel = {doctor: 'Dr.', nurse: 'Nurse', paramedic: 'Paramedic'}[localStorage.getItem('lv_doctor_role')] || '';
+document.getElementById('welcome').textContent = 'Welcome, ' + roleLabel + ' ' + (localStorage.getItem('lv_doctor_name') || '');
+
+async function loadStatus(){
+  try{
+    const me = await apiFetch('/api/doctor/me', {auth:'doctor'});
+    const banner = document.getElementById('statusBanner');
+    if(me.verification_status === 'pending'){
+      banner.innerHTML = `<div class="otp-note">⏳ Your account is pending admin verification. You can browse this dashboard, but patient records stay locked until an admin confirms your hospital email and license number.</div>`;
+      document.getElementById('scanBtn').disabled = true;
+      document.getElementById('scanBtn').textContent = '🔒 Locked until verified';
+    } else if(me.verification_status === 'rejected'){
+      banner.innerHTML = `<div class="error-msg">Your account was not approved. Contact your hospital admin or re-register with correct details.</div>`;
+      document.getElementById('scanBtn').disabled = true;
+      document.getElementById('scanBtn').textContent = '🔒 Account rejected';
+    } else {
+      banner.innerHTML = `<div class="success-msg">✓ Verified doctor account — ${me.hospital}</div>`;
+    }
+  }catch(e){ /* silent */ }
+}
+loadStatus();
+
+function scanCamera(){
+  openQrScanner((decodedText) => {
+    const id = extractLifeVerraId(decodedText);
+    location.href = 'doctor-patient.html?lv=' + encodeURIComponent(id);
+  });
+}
+function toggleManual(){
+  const el = document.getElementById('manualEntry');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function scan(){
+  const id = document.getElementById('scanId').value.trim();
+  const err = document.getElementById('err'); hideError(err);
+  if(!id){ showError(err, "Enter a LifeVerra ID."); return; }
+  location.href = 'doctor-patient.html?lv=' + encodeURIComponent(id);
+}
+
+async function loadRecent(){
+  try{
+    const list = await apiFetch('/api/doctor/recent-access', {auth:'doctor'});
+    const el = document.getElementById('recent');
+    if(list.length === 0){ el.innerHTML = '<p class="sub">No access history yet.</p>'; return; }
+    el.innerHTML = list.map(r => `
+      <div class="list-item">
+        <div><div class="title">${r.patient_name}</div><div class="meta">${r.lifeverra_id}</div></div>
+        <div class="meta">${new Date(r.timestamp).toLocaleString()}</div>
+      </div>
+    `).join('');
+  }catch(e){ /* silent */ }
+}
+loadRecent();
+
+function logout(){
+  localStorage.removeItem('lvr_doctor_token');
+  localStorage.removeItem('lv_doctor_name');
+  location.href = 'index.html';
+}
+</script>
+</body>
+</html>

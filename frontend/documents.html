@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report History - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap" style="padding-bottom:90px;">
+  <div class="card">
+    <h2 style="font-size:16px;">Report History</h2>
+    <p class="sub">Keep photos of prescriptions, lab reports and discharge summaries here so they're on hand later — for yourself, or for a doctor treating you in an emergency. Just storage, no AI check involved.</p>
+    <p class="sub" style="font-size:11.5px;color:var(--muted);">🔒 Private — visible only to you and a doctor viewing your full record. Never shown on the public emergency QR scan.</p>
+
+    <input type="file" id="fileInput" accept="*/*">
+    <input type="text" id="labelInput" placeholder="Label (optional) e.g. Blood Test - Aug 2026">
+    <button class="btn" id="uploadBtn" onclick="upload()">📤 Upload Report</button>
+    <div id="err" class="error-msg" style="display:none;"></div>
+  </div>
+
+  <div id="list"></div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('settings');
+const token = localStorage.getItem('lvr_patient_token');
+
+async function load(){
+  const listEl = document.getElementById('list');
+  listEl.innerHTML = '<div class="card"><p class="sub">Loading…</p></div>';
+  try{
+    const docs = await apiFetch('/api/patient/documents');
+    if(!docs.length){
+      listEl.innerHTML = '<div class="card"><p class="sub">No reports uploaded yet.</p></div>';
+      return;
+    }
+    listEl.innerHTML = docs.map(d => `
+      <div class="card doc-row">
+        <div>
+          <div class="doc-label">${d.label || d.filename}</div>
+          <div class="doc-meta">${new Date(d.uploaded_at).toLocaleString()} · ${d.size_kb} KB</div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn outline" style="margin-top:0;" onclick="view('${d.id}')">👁️ View</button>
+          <button class="btn secondary" style="margin-top:0;" onclick="del('${d.id}')">🗑️ Delete</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    listEl.innerHTML = `<div class="card"><p class="sub error-msg">${e.message}</p></div>`;
+  }
+}
+
+async function upload(){
+  const err = document.getElementById('err'); hideError(err);
+  const file = document.getElementById('fileInput').files[0];
+  if(!file){ showError(err, 'Choose a file first.'); return; }
+  const label = document.getElementById('labelInput').value.trim();
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true; btn.textContent = 'Uploading...';
+  try{
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/patient/documents?label=' + encodeURIComponent(label), {
+      method: 'POST', headers: {Authorization: 'Bearer ' + token}, body: formData,
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Upload failed.');
+    document.getElementById('fileInput').value = '';
+    document.getElementById('labelInput').value = '';
+    load();
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = '📤 Upload Report';
+  }
+}
+
+function view(id){
+  fetch('/api/patient/documents/' + id + '/file', {headers:{Authorization:'Bearer '+token}})
+    .then(r => r.blob())
+    .then(b => window.open(URL.createObjectURL(b), '_blank'));
+}
+
+async function del(id){
+  if(!confirm('Delete this report? This can\'t be undone.')) return;
+  try{
+    await apiFetch('/api/patient/documents/' + id, {method: 'DELETE'});
+    load();
+  }catch(e){
+    alert('Could not delete: ' + e.message);
+  }
+}
+
+load();
+</script>
+</body>
+</html>

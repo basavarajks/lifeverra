@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Info - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div id="loading" class="wrap"><p class="sub">Loading emergency info...</p></div>
+<div id="content" style="display:none;">
+  <div class="wrap" style="padding-top:22px;">
+    <div id="activeEmgBanner" style="display:none;" class="disclaimer-box"></div>
+    <div class="emergency-header">
+      <div class="avatar" id="initials">?</div>
+      <div>
+        <div style="font-weight:700;font-size:17px;" id="pname">—</div>
+        <div style="font-size:12.5px;opacity:.9;" id="pmeta">—</div>
+      </div>
+    </div>
+    <div class="card" style="border-radius:0 0 14px 14px;margin-top:0;border-top:none;">
+      <div class="info-row"><span class="k">🩸 Blood Group</span><span class="v" id="bg">—</span></div>
+      <div class="info-row"><span class="k">📞 Emergency Contact</span><span class="v" id="ec">—</span></div>
+      <div class="info-row"><span class="k">🚑 Call for help</span><span class="v">Dial 108</span></div>
+    </div>
+
+    <div class="row">
+      <button class="btn danger" style="margin-top:0;" onclick="dialNumber('108','Ambulance')">🚑 Call 108</button>
+      <button class="btn secondary" style="margin-top:0;" id="callContactBtn" onclick="callEmergencyContact()">📞 Call Contact</button>
+    </div>
+    <button class="btn outline" id="directionsBtn" style="display:none;" onclick="openDirections()">🗺️ Get Directions to Recommended Hospital</button>
+
+    <div class="card">
+      <h2 style="font-size:15px;">🔒 Protected Medical Information</h2>
+      <p class="sub" id="protectedSub">Allergies, medications, chronic conditions and surgical history are protected. A verified doctor must log in to view them.</p>
+      <button class="btn secondary" id="doctorLoginBtn" onclick="goDoctorLogin()">Doctor Login</button>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:15px;">Nearest Hospitals</h2>
+      <div id="hospList">Loading...</div>
+      <div class="link-btn" onclick="location.href='hospitals.html'">View all nearest hospitals →</div>
+    </div>
+  </div>
+</div>
+<div id="errBox" class="wrap" style="display:none;">
+  <div class="card"><h2 id="errTitle">Not found</h2><p class="sub" id="errMsg"></p></div>
+</div>
+
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const lv = params.get('lv');
+let patientData = null;
+let recommendedCoords = null;
+
+async function load(){
+  if(!lv){ showErr('No LifeVerra ID provided.', 'Missing QR data'); return; }
+  if(!/^LVERRA-\d{4}-\d+$/i.test(lv.trim())){
+    showErr("This QR code is not recognized.", "Invalid LifeVerra QR");
+    return;
+  }
+  try{
+    const p = await apiFetch('/api/emergency/' + encodeURIComponent(lv), {auth:false});
+    patientData = p;
+    document.getElementById('loading').style.display = 'none';
+
+    if(p.revoked){
+      showErr("This LifeVerra ID has been revoked.", "🚫 ID Revoked");
+      return;
+    }
+
+    document.getElementById('content').style.display = 'block';
+    document.getElementById('pname').textContent = p.full_name || 'Unknown';
+    document.getElementById('pmeta').textContent = `Age ${p.age || '—'} | ${p.gender || '—'} | ${p.lifeverra_id}`;
+    document.getElementById('initials').textContent = (p.full_name || '?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    document.getElementById('bg').textContent = p.blood_group || '—';
+    document.getElementById('ec').textContent = p.emergency_contacts.length
+      ? `${p.emergency_contacts[0].name} (${p.emergency_contacts[0].relation}) - ${p.emergency_contacts[0].phone}`
+      : 'Not provided';
+
+    if(p.active_emergency){
+      const ae = p.active_emergency;
+      const banner = document.getElementById('activeEmgBanner');
+      banner.style.display = 'block';
+      banner.style.background = '#fdeceb'; banner.style.color = '#a5352d';
+      banner.innerHTML = `<strong>🚨 Active emergency</strong><br>Triage: ${ae.triage_level || '—'} · ${ae.condition || ''}${ae.recommended_hospital_name ? `<br>Recommended hospital: ${ae.recommended_hospital_name}` : ''}`;
+      if(ae.latitude && ae.longitude){
+        recommendedCoords = {lat: ae.latitude, lon: ae.longitude};
+        document.getElementById('directionsBtn').style.display = 'block';
+      }
+    }
+    loadHospitals();
+  }catch(e){
+    showErr(e.message, 'Not found');
+  }
+}
+function showErr(msg, title){
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('errBox').style.display = 'block';
+  document.getElementById('errTitle').textContent = title || 'Not found';
+  document.getElementById('errMsg').textContent = msg;
+}
+function goDoctorLogin(){
+  location.href = 'doctor-login.html?lv=' + encodeURIComponent(lv);
+}
+function callEmergencyContact(){
+  if(!patientData || !patientData.emergency_contacts.length){ showToast('No emergency contact on file.'); return; }
+  // The contact list on screen is masked (privacy) - fetch the real number
+  // just-in-time so the call itself still works.
+  apiFetch('/api/emergency/' + encodeURIComponent(lv) + '/contact-phone', {auth:false})
+    .then(c => dialNumber(c.phone, c.name))
+    .catch(e => showToast(e.message || 'Could not place call.'));
+}
+function openDirections(){
+  if(!recommendedCoords) return;
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${recommendedCoords.lat},${recommendedCoords.lon}&travelmode=driving`, '_blank');
+}
+async function loadHospitals(){
+  try{
+    let query = '';
+    try{
+      const loc = await getLiveLocation({timeout:6000});
+      query = `?lat=${loc.latitude}&lon=${loc.longitude}`;
+    }catch(e){ /* location declined - hospital list just won't load without it */ }
+    if(!query){
+      document.getElementById('hospList').innerHTML = '<p class="sub">Enable location access to see nearby hospitals.</p>';
+      return;
+    }
+    const list = await apiFetch('/api/hospitals/nearby' + query, {auth:false});
+    const el = document.getElementById('hospList');
+    el.innerHTML = list.slice(0,2).map(h => `
+      <div class="hospital-card">
+        <div class="name">${h.name}</div>
+        <div class="dist">${h.distance_km} km away</div>
+      </div>
+    `).join('');
+  }catch(e){ /* silent */ }
+}
+load();
+</script>
+</body>
+</html>

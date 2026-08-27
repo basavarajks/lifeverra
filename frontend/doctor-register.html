@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doctor Registration - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Doctor Registration</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2>Register as a Doctor</h2>
+    <p class="sub">Use your hospital-issued email, not a personal one. Your account is reviewed by an admin before you can access patient records — this protects patients from unverified accounts.</p>
+    <label>Role</label>
+    <select id="role">
+      <option value="doctor">Doctor</option>
+      <option value="nurse">Nurse</option>
+      <option value="paramedic">Paramedic / EMT</option>
+    </select>
+    <p class="sub" style="margin:6px 0 0;">Nurses and paramedics can view full patient records but can't mark medical info as doctor-verified — that sign-off stays doctor-only.</p>
+    <label>Full Name</label>
+    <input id="name" placeholder="Dr. Ravi Kumar">
+    <label>Hospital</label>
+    <input id="hospital" placeholder="Apollo Hospital">
+    <label>Hospital Email ID</label>
+    <input id="email" placeholder="dr.ravi@apollohospital.com">
+    <label>Medical Registration / License Number</label>
+    <input id="license" placeholder="e.g. KMC-123456">
+    <label>Password</label>
+    <input id="password" type="password">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="regBtn" onclick="reg()">Register</button>
+    <div class="link-btn" onclick="location.href='doctor-login.html'">Already registered? Login</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+async function reg(){
+  const err = document.getElementById('err'); hideError(err);
+  const payload = {
+    name: document.getElementById('name').value.trim(),
+    hospital: document.getElementById('hospital').value.trim(),
+    doctor_id_email: document.getElementById('email').value.trim(),
+    license_number: document.getElementById('license').value.trim(),
+    role: document.getElementById('role').value,
+    password: document.getElementById('password').value,
+  };
+  if(!payload.name || !payload.hospital || !payload.doctor_id_email || !payload.license_number || !payload.password){
+    showError(err, "Fill in all fields, including your license number."); return;
+  }
+  const btn = document.getElementById('regBtn');
+  btn.disabled = true; btn.textContent = "Registering...";
+  try{
+    await apiFetch('/api/doctor/register', {method:'POST', body: payload, auth:false});
+    document.querySelector('.card').innerHTML = `
+      <h2>Account created</h2>
+      <p class="sub">Your account is pending review. An admin verifies your hospital email and license number before you can access patient records. You can log in now, but full record access stays locked until you're approved.</p>
+      <button class="btn" onclick="location.href='doctor-login.html'">Go to Login</button>
+    `;
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = "Register";
+  }
+}
+</script>
+</body>
+</html>

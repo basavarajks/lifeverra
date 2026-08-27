@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LifeVerra — AI Emergency Healthcare & Response Platform</title>
+<link rel="stylesheet" href="style.css?v=15">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#0b1f3a">
+</head>
+<body class="lv-landing">
+
+<!-- App-style splash intro, shown once per browser session -->
+<div class="lv-splash" id="splash">
+  <div class="mark">LVR</div>
+  <svg class="ekg" viewBox="0 0 180 36" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0 18 H50 L58 4 L68 32 L76 18 H90 L96 10 L102 26 L108 18 H180"/>
+  </svg>
+  <div class="word">LifeVerra</div>
+  <div class="sub">Loading your emergency-ready profile…</div>
+</div>
+
+<div class="lv-hero">
+  <div class="lv-ai-bg" aria-hidden="true">
+    <div class="lv-orb lv-orb-a"></div>
+    <div class="lv-orb lv-orb-b"></div>
+    <svg class="lv-mesh" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid slice">
+      <g class="mesh-lines">
+        <line x1="60" y1="70" x2="150" y2="140"/>
+        <line x1="150" y1="140" x2="260" y2="60"/>
+        <line x1="260" y1="60" x2="340" y2="150"/>
+        <line x1="340" y1="150" x2="430" y2="90"/>
+        <line x1="430" y1="90" x2="520" y2="180"/>
+        <line x1="520" y1="180" x2="610" y2="110"/>
+        <line x1="610" y1="110" x2="700" y2="200"/>
+        <line x1="700" y1="200" x2="760" y2="80"/>
+        <line x1="150" y1="140" x2="340" y2="150"/>
+        <line x1="430" y1="90" x2="610" y2="110"/>
+        <line x1="100" y1="320" x2="220" y2="380"/>
+        <line x1="220" y1="380" x2="350" y2="340"/>
+        <line x1="350" y1="340" x2="480" y2="400"/>
+        <line x1="480" y1="400" x2="600" y2="330"/>
+        <line x1="600" y1="330" x2="720" y2="380"/>
+        <line x1="220" y1="380" x2="150" y2="140"/>
+        <line x1="480" y1="400" x2="430" y2="90"/>
+      </g>
+      <g class="mesh-nodes">
+        <circle cx="60" cy="70" r="3"/>
+        <circle cx="150" cy="140" r="3"/>
+        <circle class="pulse" cx="260" cy="60" r="3.5"/>
+        <circle cx="340" cy="150" r="3"/>
+        <circle class="pulse" cx="430" cy="90" r="3.5"/>
+        <circle cx="520" cy="180" r="3"/>
+        <circle cx="610" cy="110" r="3"/>
+        <circle cx="700" cy="200" r="3"/>
+        <circle cx="760" cy="80" r="3"/>
+        <circle cx="100" cy="320" r="3"/>
+        <circle cx="220" cy="380" r="3"/>
+        <circle cx="350" cy="340" r="3"/>
+        <circle cx="480" cy="400" r="3"/>
+        <circle class="pulse" cx="600" cy="330" r="3.5"/>
+        <circle cx="720" cy="380" r="3"/>
+      </g>
+    </svg>
+  </div>
+  <div class="lv-hero-inner">
+    <div class="lv-nav">
+      <div class="mark">LVR</div>
+      <div class="name">LifeVerra<small>EMERGENCY HEALTHCARE</small></div>
+    </div>
+
+    <div class="lv-hero-grid">
+      <div>
+        <div class="lv-badge"><span class="dot"></span> Trusted emergency medical platform</div>
+        <h1>Every second<br><em>counted.</em></h1>
+        <p class="lead">Your medical ID, hospital finder, and SOS button — in one scan.</p>
+        <div class="lv-actions">
+          <button class="btn" style="background:var(--teal-2);" onclick="location.href='register.html'">Create Account</button>
+          <button class="btn outline" style="background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.3);" onclick="location.href='login.html'">Login</button>
+        </div>
+        <div class="lv-quicklinks">
+          <button onclick="location.href='login.html?next=emergency-mode'">🚨 Emergency SOS</button>
+          <span class="sep">·</span>
+          <button onclick="scanQr()">📷 Scan a Medical QR</button>
+        </div>
+        <div class="lv-stats">
+          <div><div class="num">24/7</div><div class="lbl">Access</div></div>
+          <div><div class="num">108</div><div class="lbl">Ambulance</div></div>
+          <div><div class="num">GPS</div><div class="lbl">Location</div></div>
+        </div>
+      </div>
+
+      <div class="lv-visual" aria-hidden="true">
+        <div class="vh"><span class="t">EMERGENCY ID · LIVE PREVIEW</span><span class="live"><span class="d"></span>ACTIVE</span></div>
+        <div class="lv-ekg-wrap">
+          <svg viewBox="0 0 400 64" preserveAspectRatio="none">
+            <path d="M0 32 H110 L120 8 L134 58 L146 32 H200 L210 8 L224 58 L236 32 H400 M400 32 H510 L520 8 L534 58 L546 32 H600 L610 8 L624 58 L636 32 H800"/>
+          </svg>
+        </div>
+        <div class="vrow"><span class="k">Blood Group</span><span class="v">O+</span></div>
+        <div class="vrow"><span class="k">Nearest Match</span><span class="v"><span class="pin"></span>Apollo · 2.4 km</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" style="max-width:360px;padding-top:24px;text-align:center;">
+  <button class="btn secondary" onclick="location.href='doctor-login.html'">🩺 Doctor / Responder Login</button>
+</div>
+
+<script src="scanner.js"></script>
+<script>
+// App-style splash: shown briefly on first load per tab, skippable by tap,
+// and skipped entirely for reduced-motion users / repeat visits this session.
+(function(){
+  const splash = document.getElementById('splash');
+  const seen = sessionStorage.getItem('lvr_splash_seen');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(seen || reduceMotion){
+    splash.classList.add('hide');
+  } else {
+    sessionStorage.setItem('lvr_splash_seen', '1');
+    const dismiss = () => splash.classList.add('hide');
+    setTimeout(dismiss, 1700);
+    splash.addEventListener('click', dismiss);
+  }
+})();
+
+function scanQr(){
+  openQrScanner((decodedText) => {
+    const id = extractLifeVerraId(decodedText);
+    location.href = 'emergency.html?lv=' + encodeURIComponent(id);
+  });
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>

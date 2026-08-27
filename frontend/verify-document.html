@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify with a Document - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap">
+  <div class="card">
+    <h2 style="font-size:16px;">Cross-check your medical info</h2>
+    <p class="sub">Upload a photo of a prescription or lab report. We'll extract the text and check it against what you've entered — this doesn't change anything by itself, it just tells you what matched.</p>
+    <p class="sub" style="color:var(--amber);">Works best on printed documents. Handwritten prescriptions often can't be read reliably — that's a known limitation of OCR, not a bug.</p>
+
+    <input type="file" id="fileInput" accept="image/*,application/pdf">
+    <button class="btn" id="checkBtn" onclick="runCheck()">Check Document</button>
+    <div id="err" class="error-msg" style="display:none;"></div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('settings');
+const token = localStorage.getItem('lvr_patient_token');
+let lastFilename = '';
+
+async function runCheck(){
+  const err = document.getElementById('err'); hideError(err);
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput.files[0];
+  if(!file){ showError(err, "Choose a photo first."); return; }
+  lastFilename = file.name;
+
+  const btn = document.getElementById('checkBtn');
+  btn.disabled = true; btn.textContent = "Reading document...";
+  document.getElementById('results').innerHTML = '';
+
+  try{
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/patient/document-check', {
+      method: 'POST',
+      headers: {Authorization: 'Bearer ' + token},
+      body: formData,
+    });
+    const data = await res.json();
+    if(!res.ok){ throw new Error(data.detail || 'Document check failed.'); }
+    render(data);
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Check Document";
+  }
+}
+
+function allFieldsConfirmed(fieldMatches){
+  // True only if every field that actually had data entered was found in
+  // the document. A field with nothing entered ("nothing to check")
+  // doesn't count against this - there was nothing to confirm either way.
+  return Object.values(fieldMatches).every(info => info.all_found !== false);
+}
+
+function render(data){
+  const box = document.getElementById('results');
+  if(!data.readable){
+    box.innerHTML = `<div class="card"><p class="sub">${data.message}</p></div>`;
+    return;
+  }
+
+  const fieldLabels = {
+    allergies: 'Allergies',
+    chronic_diseases: 'Chronic Diseases',
+    current_medications: 'Current Medications',
+    past_surgeries: 'Past Surgeries',
+  };
+
+  let rows = '';
+  for(const [field, info] of Object.entries(data.field_matches)){
+    if(info.all_found === null){
+      rows += `<div class="info-row"><span class="k">${fieldLabels[field]}</span><span class="v">Nothing entered — nothing to check</span></div>`;
+      continue;
+    }
+    const badge = info.all_found
+      ? '<span class="badge green">Matches document</span>'
+      : '<span class="badge amber">Not confirmed in this document</span>';
+    rows += `<div class="info-row"><span class="k">${fieldLabels[field]}</span><span class="v">${badge}</span></div>`;
+  }
+
+  const ocrCard = `
+    <div class="card">
+      <details class="ocr-details">
+        <summary>View extracted text</summary>
+        <p class="sub" style="margin-top:10px;">This is raw text pulled from your document by OCR, so odd spacing or a stray misread character here and there is normal — it's not meant to be a re-typed copy of the document, just a check of what was found.</p>
+        <div class="ocr-text">${formatOcrText(data.ocr_text)}</div>
+      </details>
+    </div>`;
+
+  if(allFieldsConfirmed(data.field_matches)){
+    box.innerHTML = `
+      <div class="card">
+        <h2 style="font-size:15px;">✅ Everything matches</h2>
+        ${rows}
+        <p class="sub" style="margin-top:10px;">Every field you entered was confirmed in this document.</p>
+        <button class="btn" onclick="confirmCheck()">✓ Mark as AI Cross-Checked</button>
+      </div>
+      ${ocrCard}
+    `;
+  } else {
+    box.innerHTML = `
+      <div class="card">
+        <h2 style="font-size:15px;">⚠️ Some fields couldn't be confirmed</h2>
+        ${rows}
+        <p class="sub" style="margin-top:10px;">"Not confirmed" doesn't necessarily mean wrong — it just means this specific document didn't mention it. Review before relying on this.</p>
+        <p class="sub"><b>Suggestion:</b> update the unconfirmed field(s) in My Health Information to match this document, then run the check again — or continue without marking full AI verification for now.</p>
+        <button class="btn outline" onclick="location.href='medical-info.html'">Edit Manually</button>
+        <div class="link-btn" onclick="location.href='dashboard.html'">Continue without full verification</div>
+      </div>
+      ${ocrCard}
+    `;
+  }
+}
+
+// Raw OCR text comes back as one long run-on string. This doesn't
+// re-typeset the document — that would need layout-aware OCR the backend
+// doesn't do — but breaking a line before labels a report is likely to
+// have (Patient Name, Blood Group, Doctor Information, etc.) makes the
+// wall of text scannable instead of one paragraph.
+const OCR_LABELS = [
+  'Report Date', 'Patient Information', 'Patient Name', 'Age', 'Gender', 'Patient ID',
+  'Blood Group', 'Address', 'ALLERGIES', 'Allergies', 'CHRONIC CONDITIONS', 'Chronic Conditions',
+  'CURRENT MEDICATION', 'Current Medication', 'PAST SURGERIES', 'Past Surgeries',
+  'Additional Notes', 'Doctor Information', 'Reg. No', 'Reg No', 'Signature of Doctor', 'Phone',
+];
+function formatOcrText(text){
+  if(!text) return '(none)';
+  let t = text.replace(/\s+/g, ' ').trim();
+  const pattern = new RegExp('(?=\\b(?:' + OCR_LABELS.map(l => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\s*[:\\-]?)', 'g');
+  t = t.replace(pattern, '\n');
+  return t.split('\n').map(line => line.trim()).filter(Boolean)
+    .map(line => `<p>${line}</p>`).join('');
+}
+
+async function confirmCheck(){
+  const box = document.getElementById('results');
+  try{
+    await apiFetch('/api/patient/document-check/confirm?source_filename=' + encodeURIComponent(lastFilename), {method:'POST'});
+    box.innerHTML = `
+      <div class="card">
+        <h2 style="font-size:15px;">✅ Document cross-verified successfully</h2>
+        <p class="sub">Your profile is now marked as AI cross-checked.</p>
+        <button class="btn" onclick="location.href='dashboard.html'">Continue to Dashboard</button>
+      </div>`;
+  }catch(e){
+    alert('Could not save: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=17">
+<script src="https://accounts.google.com/gsi/client" async defer onload="onGoogleLibLoaded()"></script>
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>LifeVerra</h1></div>
+<div class="wrap">
+
+  <div class="card" id="loginCard">
+    <h2>Login to LifeVerra</h2>
+    <p class="sub">Sign in with Google, or your email and password</p>
+
+    <div id="googleWrap" style="display:none;">
+      <div class="google-btn-wrap" id="googleBtn"></div>
+      <div class="auth-divider"><span>or continue with email</span></div>
+    </div>
+
+    <label>Email Address</label>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+    <label>Password</label>
+    <input id="password" type="password" placeholder="Your password" autocomplete="current-password">
+    <div id="err1" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="loginBtn" onclick="doLogin()">Login</button>
+    <div class="link-btn" onclick="location.href='register.html'">New to LifeVerra? Create Account</div>
+  </div>
+
+</div>
+<script src="api.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const nextPage = params.get('next');
+
+// --- Google Sign-In -------------------------------------------------------
+let googleLibLoaded = false;
+let googleConfig = null;
+
+function onGoogleLibLoaded(){
+  googleLibLoaded = true;
+  tryInitGoogle();
+}
+
+apiFetch('/api/auth/google/config', {auth:false})
+  .then(cfg => { googleConfig = cfg; tryInitGoogle(); })
+  .catch(() => { googleConfig = {enabled:false}; });
+
+function tryInitGoogle(){
+  if(!googleLibLoaded || !googleConfig) return;
+  if(!googleConfig.enabled) return;
+  google.accounts.id.initialize({
+    client_id: googleConfig.client_id,
+    callback: handleGoogleCredential,
+  });
+  document.getElementById('googleWrap').style.display = 'block';
+  google.accounts.id.renderButton(document.getElementById('googleBtn'), {theme:'outline', size:'large', width:280, text:'signin_with'});
+}
+
+function handleGoogleCredential(response){
+  const err1 = document.getElementById('err1'); hideError(err1);
+  apiFetch('/api/auth/google', {method:'POST', body:{id_token: response.credential}, auth:false})
+    .then(data => { afterLogin(data); })
+    .catch(e => showError(err1, e.message));
+}
+
+function afterLogin(data){
+  localStorage.setItem('lvr_patient_token', data.token);
+  localStorage.setItem('lvr_patient_id', data.lifeverra_id);
+  if(!data.profile_complete){
+    location.href = 'basic-info.html';
+  } else if(nextPage === 'emergency-mode'){
+    location.href = 'emergency-mode.html';
+  } else {
+    location.href = 'dashboard.html';
+  }
+}
+
+// --- Email + password login -------------------------------------------------
+function doLogin(){
+  const err1 = document.getElementById('err1'); hideError(err1);
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+
+  if(!email || !email.includes('@')){
+    showError(err1, "Enter a valid email address.");
+    return;
+  }
+  if(!password){
+    showError(err1, "Enter your password.");
+    return;
+  }
+
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = "Logging in...";
+  apiFetch('/api/patient/login', {method:'POST', body:{email, password}, auth:false})
+    .then(data => { afterLogin(data); })
+    .catch(e => { showError(err1, e.message); })
+    .finally(() => { btn.disabled = false; btn.textContent = "Login"; });
+}
+</script>
+</body>
+</html>

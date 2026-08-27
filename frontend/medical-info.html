@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medical Information - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>LifeVerra</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2 id="heading">Medical Information</h2>
+    <p class="sub" id="subheading">Step 4 of 6 — Add your medical details</p>
+    <div class="step-track" id="stepTrack">
+      <div class="node done">1</div><div class="seg done"></div><div class="node done">2</div><div class="seg done"></div>
+      <div class="node done">3</div><div class="seg done"></div><div class="node current">4</div><div class="seg"></div>
+      <div class="node">5</div><div class="seg"></div><div class="node">6</div>
+    </div>
+
+    <label>Allergies</label>
+    <input id="allergies" placeholder="Penicillin, Peanuts (comma separated)">
+    <label>Chronic Diseases</label>
+    <input id="chronic_diseases" placeholder="Asthma, Diabetes">
+    <label>Current Medications</label>
+    <input id="current_medications" placeholder="Montelukast">
+    <label>Previous Surgeries</label>
+    <input id="past_surgeries" placeholder="Appendectomy (2021)">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="nextBtn" onclick="next()">Next</button>
+    <div class="link-btn" id="skipLink" onclick="location.href='emergency-contacts.html'">Skip for now</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+requirePatientAuth();
+
+// This page does double duty: step 4 of first-time onboarding, or "edit
+// my existing health info" when reached later (e.g. from a "My Health"
+// menu link after setup is already done). Load current values either way
+// so a returning patient sees what they actually saved, not a blank form
+// with example placeholder text mistaken for their real data.
+let isEditMode = false;
+const miParams = new URLSearchParams(location.search);
+const nextOverride = miParams.get('next');
+apiFetch('/api/patient/me').then(p => {
+  document.getElementById('allergies').value = p.allergies || '';
+  document.getElementById('chronic_diseases').value = p.chronic_diseases || '';
+  document.getElementById('current_medications').value = p.current_medications || '';
+  document.getElementById('past_surgeries').value = p.past_surgeries || '';
+
+  if(p.profile_complete){
+    isEditMode = true;
+    document.getElementById('heading').textContent = 'My Health Information';
+    document.getElementById('subheading').textContent = 'Update your allergies, conditions, medications, or surgeries.';
+    document.getElementById('stepTrack').style.display = 'none';
+    document.getElementById('nextBtn').textContent = 'Save Changes';
+    document.getElementById('skipLink').textContent = '← Back to Dashboard';
+    document.getElementById('skipLink').onclick = () => location.href = 'dashboard.html';
+  }
+}).catch(()=>{});
+
+async function next(){
+  const err = document.getElementById('err'); hideError(err);
+  const payload = {
+    allergies: document.getElementById('allergies').value.trim(),
+    chronic_diseases: document.getElementById('chronic_diseases').value.trim(),
+    current_medications: document.getElementById('current_medications').value.trim(),
+    past_surgeries: document.getElementById('past_surgeries').value.trim(),
+  };
+  const btn = document.getElementById('nextBtn');
+  btn.disabled = true; btn.textContent = isEditMode ? "Saving..." : "Saving...";
+  try{
+    await apiFetch('/api/patient/medical-info', {method:'PUT', body: payload});
+    location.href = nextOverride ? nextOverride : (isEditMode ? 'dashboard.html' : 'emergency-contacts.html');
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = isEditMode ? "Save Changes" : "Next";
+  }
+}
+</script>
+</body>
+</html>

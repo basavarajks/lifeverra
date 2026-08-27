@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Login - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Admin</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2>Doctor Verification Admin</h2>
+    <p class="sub">Restricted access. Reviews and approves doctor accounts before they can view patient records.</p>
+    <label>Admin Password</label>
+    <input id="password" type="password">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="loginBtn" onclick="doLogin()">Login</button>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+async function doLogin(){
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('err'); hideError(err);
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = "Logging in...";
+  try{
+    const res = await fetch('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password})});
+    const data = await res.json();
+    if(!res.ok){ throw new Error(data.detail || 'Login failed'); }
+    localStorage.setItem('lv_admin_token', data.token);
+    location.href = 'admin-dashboard.html';
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = "Login";
+  }
+}
+</script>
+</body>
+</html>

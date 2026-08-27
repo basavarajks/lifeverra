@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doctor Login - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Doctor Login</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2>Login to continue</h2>
+    <p class="sub">Use the professional email your hospital issued you. Records are logged for every access.</p>
+    <label>Hospital Email ID</label>
+    <input id="email" placeholder="dr.ravi@apollohospital.com">
+    <label>Password</label>
+    <input id="password" type="password">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="loginBtn" onclick="doLogin()">Login</button>
+    <div class="link-btn" onclick="location.href='doctor-register.html'">Don't have an account? Register</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+async function doLogin(){
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('err'); hideError(err);
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = "Logging in...";
+  try{
+    const data = await apiFetch('/api/doctor/login', {method:'POST', body:{doctor_id_email: email, password}, auth:false});
+    sessionStorage.setItem('lv_doc_email', email);
+    sessionStorage.setItem('lv_demo_otp', data.demo_otp); // demo only: normally sent via SMS
+    const params = new URLSearchParams(location.search);
+    const lv = params.get('lv');
+    location.href = 'doctor-otp.html' + (lv ? ('?lv=' + encodeURIComponent(lv)) : '');
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = "Login";
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Access History - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap" style="padding-bottom:90px;">
+  <div class="card">
+    <p class="sub">Every time your record is viewed, it's logged here — including public emergency scans and full-record views by doctors. Tap an entry for more detail.</p>
+    <p class="sub" style="font-size:11px;">For an anonymous scan, device and approximate location are shown only when the scanner's browser/network made them available — never guessed, and never more precise than city-level.</p>
+    <div id="list">Loading...</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('history');
+async function load(){
+  try{
+    const list = await apiFetch('/api/patient/access-history');
+    const el = document.getElementById('list');
+    if(list.length === 0){ el.innerHTML = '<p class="sub">No access recorded yet.</p>'; return; }
+    const focusId = new URLSearchParams(location.search).get('focus');
+    el.innerHTML = list.map(r => `
+      <div class="list-item" style="cursor:pointer;flex-direction:column;align-items:stretch;" onclick="toggleDetail('${r.id}')">
+        <div style="display:flex;justify-content:space-between;width:100%;">
+          <div>
+            <div class="title">${accessTypeLabel(r)}</div>
+            <div class="meta">${r.hospital || (r.access_type.startsWith('public_emergency') ? 'Unknown scanner (no login)' : '')}</div>
+          </div>
+          <div class="meta">${new Date(r.timestamp).toLocaleString()}</div>
+        </div>
+        <div id="detail-${r.id}" class="ocr-text" style="display:none;margin-top:8px;">
+          <p><b>Time:</b> ${new Date(r.timestamp).toLocaleString()}</p>
+          <p><b>Access type:</b> ${accessTypeLabel(r)}</p>
+          ${r.access_type.startsWith('public_emergency') ? `
+            <p><b>Approximate location:</b> ${r.approx_location || 'Not available'}</p>
+            <p><b>Device:</b> ${r.device_info || 'Not available'}</p>
+            <p><b>IP address:</b> ${r.ip_hint || 'Not available'}</p>
+          ` : ''}
+        </div>
+      </div>
+    `).join('');
+    if(focusId && document.getElementById('detail-' + focusId)){
+      document.getElementById('detail-' + focusId).style.display = 'block';
+      document.getElementById('detail-' + focusId).scrollIntoView({block:'center', behavior:'smooth'});
+    }
+  }catch(e){
+    document.getElementById('list').innerHTML = '<p class="sub">' + e.message + '</p>';
+  }
+}
+function toggleDetail(id){
+  const el = document.getElementById('detail-' + id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function accessTypeLabel(r){
+  if(r.access_type === 'doctor_full_record') return (r.doctor_name || 'Doctor') + ' — Full Record';
+  if(r.access_type === 'public_emergency_revoked') return '🚫 Revoked ID scan attempt';
+  return 'Public Emergency Scan';
+}
+load();
+</script>
+</body>
+</html>

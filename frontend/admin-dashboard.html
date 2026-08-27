@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doctor Verification Queue - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Verification Queue</h1></div>
+<div class="wrap">
+  <div class="card">
+    <div class="row">
+      <button class="btn outline" style="margin-top:0;" onclick="load('pending')">Pending</button>
+      <button class="btn outline" style="margin-top:0;" onclick="load('verified')">Verified</button>
+      <button class="btn outline" style="margin-top:0;" onclick="load('rejected')">Rejected</button>
+    </div>
+  </div>
+  <div id="list"><p class="sub">Loading...</p></div>
+  <div class="card">
+    <button class="btn outline" onclick="logout()">Logout</button>
+  </div>
+</div>
+<script>
+const token = localStorage.getItem('lv_admin_token');
+if(!token){ location.href = 'admin-login.html'; }
+
+async function api(path, opts={}){
+  const res = await fetch(path, {
+    ...opts,
+    headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+token, ...(opts.headers||{})}
+  });
+  const data = await res.json().catch(()=>null);
+  if(!res.ok){ throw new Error((data && data.detail) || 'Request failed'); }
+  return data;
+}
+
+async function load(status){
+  const el = document.getElementById('list');
+  el.innerHTML = '<p class="sub">Loading...</p>';
+  try{
+    const doctors = await api('/api/admin/doctors?status=' + status);
+    if(doctors.length === 0){ el.innerHTML = `<div class="card"><p class="sub">No ${status} accounts.</p></div>`; return; }
+    el.innerHTML = doctors.map(d => `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h2 style="font-size:15px;margin:0;">${d.name}</h2>
+          <span class="badge amber" style="text-transform:capitalize;">${d.role || 'doctor'}</span>
+        </div>
+        <div class="info-row"><span class="k">Hospital</span><span class="v">${d.hospital}</span></div>
+        <div class="info-row"><span class="k">Email</span><span class="v">${d.email}</span></div>
+        <div class="info-row"><span class="k">License No.</span><span class="v">${d.license_number || '—'}</span></div>
+        <div class="info-row"><span class="k">Registered</span><span class="v">${new Date(d.created_at).toLocaleDateString()}</span></div>
+        ${d.verification_status === 'pending' ? `
+          <div class="row" style="margin-top:14px;">
+            <button class="btn" style="margin-top:0;" onclick="verify('${d.id}')">✓ Approve</button>
+            <button class="btn danger" style="margin-top:0;" onclick="reject('${d.id}')">✕ Reject</button>
+          </div>
+        ` : `<span class="badge ${d.verification_status === 'verified' ? 'green' : 'red'}">${d.verification_status}</span>`}
+      </div>
+    `).join('');
+  }catch(e){
+    el.innerHTML = `<div class="card"><p class="sub">${e.message}</p></div>`;
+  }
+}
+
+async function verify(id){
+  await api('/api/admin/doctors/' + id + '/verify', {method:'POST'});
+  load('pending');
+}
+async function reject(id){
+  await api('/api/admin/doctors/' + id + '/reject', {method:'POST'});
+  load('pending');
+}
+function logout(){
+  localStorage.removeItem('lv_admin_token');
+  location.href = 'admin-login.html';
+}
+
+load('pending');
+</script>
+</body>
+</html>

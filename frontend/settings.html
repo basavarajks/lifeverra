@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body class="has-sidebar">
+<div class="wrap" style="padding-bottom:90px;">
+  <div class="card">
+    <div class="list-item" onclick="location.href='basic-info.html'" style="cursor:pointer;"><div class="title">👤 Profile</div><div>›</div></div>
+    <div class="list-item" onclick="location.href='medical-info.html'" style="cursor:pointer;"><div class="title">🏥 Medical Information</div><div>›</div></div>
+    <div class="list-item" onclick="location.href='emergency-contacts.html'" style="cursor:pointer;"><div class="title">📞 Emergency Contacts</div><div>›</div></div>
+    <div class="list-item" onclick="location.href='documents.html'" style="cursor:pointer;"><div class="title">📄 Report History</div><div>›</div></div>
+    <div class="list-item" onclick="location.href='complaint-status.html'" style="cursor:pointer;"><div class="title">🚩 My Complaints</div><div>›</div></div>
+  </div>
+  <div class="card" id="cardStatusCard">
+    <h2 style="font-size:15px;">LifeVerra ID Card</h2>
+    <p class="sub" id="cardStatusSub">Loading...</p>
+    <button class="btn danger" id="reportLostBtn" onclick="reportLostCard()" style="display:none;">🚫 Report Lost Card</button>
+    <button class="btn" id="reactivateBtn" onclick="reactivateCard()" style="display:none;">✅ Found It — Reactivate Card</button>
+  </div>
+  <div class="card">
+    <button class="btn danger" onclick="logout()">Logout</button>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('settings');
+
+apiFetch('/api/patient/me').then(p => {
+  const sub = document.getElementById('cardStatusSub');
+  const lostBtn = document.getElementById('reportLostBtn');
+  const reactivateBtn = document.getElementById('reactivateBtn');
+  if(p.is_revoked){
+    sub.textContent = 'This LifeVerra ID was revoked on ' + new Date(p.revoked_at).toLocaleDateString() + '. Anyone scanning your old QR code will see "This LifeVerra ID has been revoked." Found the card again? Reactivate it below — the same QR will start working again.';
+    lostBtn.style.display = 'none';
+    reactivateBtn.style.display = 'block';
+  } else {
+    sub.textContent = 'If you\'ve lost your phone, wallet card, or printed QR, report it lost — the QR immediately stops showing your emergency info to anyone who scans it.';
+    lostBtn.style.display = 'block';
+    reactivateBtn.style.display = 'none';
+  }
+}).catch(()=>{
+  document.getElementById('cardStatusSub').textContent = 'Could not load card status.';
+});
+
+async function reportLostCard(){
+  if(!confirm('Report your LifeVerra ID as lost?\n\nYour QR code will stop showing emergency info to anyone who scans it. You can reactivate it later if you find the card again.')){
+    return;
+  }
+  const btn = document.getElementById('reportLostBtn');
+  btn.disabled = true; btn.textContent = 'Revoking...';
+  try{
+    await apiFetch('/api/patient/report-lost-card', {method:'POST'});
+    document.getElementById('cardStatusSub').textContent = 'This LifeVerra ID has just been revoked. Anyone scanning your old QR code will now see "This LifeVerra ID has been revoked." Found the card again? Reactivate it below.';
+    btn.style.display = 'none';
+    document.getElementById('reactivateBtn').style.display = 'block';
+  }catch(e){
+    alert('Could not revoke: ' + e.message);
+    btn.disabled = false; btn.textContent = '🚫 Report Lost Card';
+  }
+}
+
+async function reactivateCard(){
+  if(!confirm('Reactivate this LifeVerra ID?\n\nYour QR code will immediately start showing your emergency info again to anyone who scans it.')){
+    return;
+  }
+  const btn = document.getElementById('reactivateBtn');
+  btn.disabled = true; btn.textContent = 'Reactivating...';
+  try{
+    await apiFetch('/api/patient/reactivate-card', {method:'POST'});
+    document.getElementById('cardStatusSub').textContent = 'This LifeVerra ID is active again. Your existing QR code now shows your emergency info as normal.';
+    btn.style.display = 'none';
+    document.getElementById('reportLostBtn').style.display = 'block';
+  }catch(e){
+    alert('Could not reactivate: ' + e.message);
+    btn.disabled = false; btn.textContent = '✅ Found It — Reactivate Card';
+  }
+}
+
+function logout(){
+  localStorage.removeItem('lvr_patient_token');
+  localStorage.removeItem('lvr_patient_id');
+  location.href = 'index.html';
+}
+</script>
+</body>
+</html>

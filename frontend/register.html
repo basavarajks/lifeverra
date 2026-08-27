@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create Account - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=17">
+<script src="https://accounts.google.com/gsi/client" async defer onload="onGoogleLibLoaded()"></script>
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>LifeVerra</h1></div>
+<div class="wrap">
+
+  <div class="card" id="regCard">
+    <h2>Create Your LifeVerra Account</h2>
+    <p class="sub">Step 1 of 6 — Sign up</p>
+    <div class="step-track">
+      <div class="node current">1</div><div class="seg"></div><div class="node">2</div><div class="seg"></div>
+      <div class="node">3</div><div class="seg"></div><div class="node">4</div><div class="seg"></div>
+      <div class="node">5</div><div class="seg"></div><div class="node">6</div>
+    </div>
+
+    <div id="googleWrap" style="display:none;">
+      <div class="google-btn-wrap" id="googleBtn"></div>
+      <div class="auth-divider"><span>or sign up with email</span></div>
+    </div>
+
+    <label>Email Address</label>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+    <label>Password</label>
+    <input id="password" type="password" placeholder="At least 8 characters" autocomplete="new-password">
+    <label>Confirm Password</label>
+    <input id="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password">
+    <div id="err1" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="registerBtn" onclick="doRegister()">Create Account</button>
+    <div class="link-btn" onclick="location.href='login.html'">Already have an account? Login</div>
+  </div>
+
+</div>
+<script src="api.js"></script>
+<script>
+// --- Google Sign-In -------------------------------------------------------
+let googleLibLoaded = false;
+let googleConfig = null;
+
+function onGoogleLibLoaded(){
+  googleLibLoaded = true;
+  tryInitGoogle();
+}
+
+apiFetch('/api/auth/google/config', {auth:false})
+  .then(cfg => { googleConfig = cfg; tryInitGoogle(); })
+  .catch(() => { googleConfig = {enabled:false}; });
+
+function tryInitGoogle(){
+  if(!googleLibLoaded || !googleConfig) return;
+  if(!googleConfig.enabled) return;
+  google.accounts.id.initialize({
+    client_id: googleConfig.client_id,
+    callback: handleGoogleCredential,
+  });
+  document.getElementById('googleWrap').style.display = 'block';
+  google.accounts.id.renderButton(document.getElementById('googleBtn'), {theme:'outline', size:'large', width:280, text:'signup_with'});
+}
+
+function handleGoogleCredential(response){
+  const err1 = document.getElementById('err1'); hideError(err1);
+  apiFetch('/api/auth/google', {method:'POST', body:{id_token: response.credential}, auth:false})
+    .then(data => {
+      localStorage.setItem('lvr_patient_token', data.token);
+      localStorage.setItem('lvr_patient_id', data.lifeverra_id);
+      location.href = data.profile_complete ? 'dashboard.html' : 'basic-info.html';
+    })
+    .catch(e => showError(err1, e.message));
+}
+
+// --- Email + password registration -----------------------------------------
+function doRegister(){
+  const err1 = document.getElementById('err1'); hideError(err1);
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const confirmPassword = document.getElementById('confirmPassword').value;
+
+  if(!email || !email.includes('@')){
+    showError(err1, "Enter a valid email address.");
+    return;
+  }
+  if(password.length < 8){
+    showError(err1, "Password must be at least 8 characters long.");
+    return;
+  }
+  if(password !== confirmPassword){
+    showError(err1, "Passwords don't match.");
+    return;
+  }
+
+  const btn = document.getElementById('registerBtn');
+  btn.disabled = true; btn.textContent = "Creating account...";
+  apiFetch('/api/patient/register', {method:'POST', body:{email, password}, auth:false})
+    .then(data => {
+      localStorage.setItem('lvr_patient_token', data.token);
+      localStorage.setItem('lvr_patient_id', data.lifeverra_id);
+      location.href = 'basic-info.html';
+    })
+    .catch(e => { showError(err1, e.message); })
+    .finally(() => { btn.disabled = false; btn.textContent = "Create Account"; });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#0b1f3a">
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h2 id="welcome">Welcome</h2>
+    <p class="sub" id="idLine"></p>
+  </div>
+
+  <div class="card" id="scanAlertCard" style="display:none;"></div>
+
+  <button class="sos-launch" onclick="location.href='emergency-mode.html'">🚨 SOS</button>
+
+  <div class="status-grid">
+    <div class="status-card safe" id="statusCard">
+      <div class="lbl">Emergency Status</div>
+      <div class="val" id="statusVal">Loading…</div>
+    </div>
+    <div class="status-card">
+      <div class="lbl">Medical ID</div>
+      <div class="val" id="idVal">—</div>
+    </div>
+    <div class="status-card">
+      <div class="lbl">Blood Group</div>
+      <div class="val" id="bloodVal">—</div>
+    </div>
+    <div class="status-card">
+      <div class="lbl">Triage</div>
+      <div class="val" id="triageVal">Normal</div>
+    </div>
+    <div class="status-card">
+      <div class="lbl">Current Location</div>
+      <div class="val" id="locVal">Checking…</div>
+    </div>
+    <div class="status-card">
+      <div class="lbl">Nearby Hospital</div>
+      <div class="val" id="hospVal">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:15px;">Quick Actions</h2>
+    <div class="quick-grid">
+      <div class="quick-btn" onclick="location.href='medical-info.html'">🩺<span>My Health</span></div>
+      <div class="quick-btn" onclick="location.href='hospitals.html'">🏥<span>Hospitals</span></div>
+      <div class="quick-btn" onclick="location.href='qr-code.html'">🔳<span>QR Medical ID</span></div>
+      <div class="quick-btn" onclick="location.href='emergency-contacts.html'">📇<span>Contacts</span></div>
+      <div class="quick-btn" onclick="location.href='access-history.html'">📜<span>History</span></div>
+    </div>
+  </div>
+
+  <div class="card" id="contactsPreview">
+    <h2 style="font-size:15px;">Emergency Contacts</h2>
+    <div id="contactsMini"></div>
+    <div class="link-btn" onclick="location.href='emergency-contacts.html'">Manage contacts →</div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('dashboard');
+
+async function load(){
+  try{
+    const p = await apiFetch('/api/patient/me');
+    document.getElementById('welcome').textContent = 'Welcome, ' + (p.full_name || 'there');
+    document.getElementById('idLine').textContent = p.lifeverra_id;
+    document.getElementById('idVal').textContent = p.lifeverra_id;
+    document.getElementById('bloodVal').textContent = p.blood_group || '—';
+
+    if(p.latitude && p.longitude){
+      document.getElementById('locVal').textContent = 'GPS detected';
+    } else {
+      document.getElementById('locVal').textContent = 'Not detected';
+    }
+
+    const contacts = p.emergency_contacts || [];
+    document.getElementById('contactsMini').innerHTML = contacts.length
+      ? contacts.slice(0,2).map(c => `<div class="contact-card"><div><div class="who">${c.name}</div><div class="rel">${c.relation}</div></div>
+          <button class="icon-btn" onclick="dialNumber('${c.phone}','${c.name}')">📞</button></div>`).join('')
+      : '<p class="sub">No emergency contacts yet.</p>';
+
+    // Active emergency check
+    document.getElementById('statusVal').textContent = 'Safe';
+  }catch(e){
+    document.getElementById('welcome').textContent = 'Welcome';
+  }
+
+  loadScanAlerts();
+
+  // Try live location silently (best-effort - never blocks the dashboard).
+  getLiveLocation().then(async loc => {
+    document.getElementById('locVal').textContent = `GPS detected (±${Math.round(loc.accuracy)}m)`;
+    try{
+      await apiFetch('/api/patient/location', {method:'PUT', body:{latitude: loc.latitude, longitude: loc.longitude, accuracy_m: loc.accuracy}});
+      const nearby = await apiFetch('/api/hospitals/nearby?lat='+loc.latitude+'&lon='+loc.longitude, {auth:false});
+      if(nearby.length){
+        document.getElementById('hospVal').textContent = nearby[0].name + ' · ' + nearby[0].distance_km + ' km';
+      }
+    }catch(e){ /* non-fatal */ }
+  }).catch(err => {
+    document.getElementById('locVal').textContent = 'Not detected';
+  });
+}
+
+load();
+
+// Notifies the patient their LifeVerra Emergency ID was accessed. There's
+// no push notification wired up in this build (that needs a service
+// worker + FCM project, outside this feature's scope), so this surfaces
+// the moment they next open the dashboard, then marks itself seen.
+// Tapping an entry opens History with that scan's details expanded.
+async function loadScanAlerts(){
+  try{
+    const alerts = await apiFetch('/api/patient/access-alerts');
+    if(!alerts.length) return;
+    const card = document.getElementById('scanAlertCard');
+    const label = a => a.access_type === 'doctor_full_record'
+      ? 'Your full medical record was viewed by a doctor'
+      : a.access_type === 'public_emergency_revoked'
+      ? 'Someone scanned your revoked LifeVerra ID'
+      : 'Your LifeVerra Emergency ID was accessed';
+    card.innerHTML = `
+      <h2 style="font-size:15px;">🔔 Recent Activity</h2>
+      ${alerts.slice(0,5).map(a => `
+        <div class="list-item" style="cursor:pointer;" onclick="location.href='access-history.html?focus=${encodeURIComponent(a.id)}'">
+          <div class="title" style="font-size:13px;font-weight:400;">${label(a)}</div>
+          <div class="meta">${new Date(a.timestamp).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})} ›</div>
+        </div>`).join('')}
+    `;
+    card.style.display = 'block';
+    apiFetch('/api/patient/access-alerts/mark-seen', {method:'PUT'}).catch(()=>{});
+  }catch(e){ /* non-fatal */ }
+}
+</script>
+</body>
+</html>

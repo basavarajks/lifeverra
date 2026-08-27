@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Full Medical Records - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Full Medical Records</h1></div>
+<div class="wrap" id="wrap">
+  <p class="sub">Loading...</p>
+</div>
+<script src="api.js"></script>
+<script>
+requireDoctorAuth();
+const params = new URLSearchParams(location.search);
+const lv = params.get('lv');
+let currentPatient = null;
+let myRole = 'doctor';
+
+function trustBadge(p){
+  if(p.medical_verified){
+    const date = p.medical_verified_at ? new Date(p.medical_verified_at).toLocaleDateString() : '';
+    return `<span class="badge green">Doctor-verified by ${p.medical_verified_by}, ${p.medical_verified_hospital} — ${date}</span>`;
+  }
+  return `<span class="badge amber">Self-reported — not yet doctor-verified</span>`;
+}
+
+function render(p){
+  currentPatient = p;
+  const wrap = document.getElementById('wrap');
+  const canVerify = myRole === 'doctor';
+  const roleNote = canVerify
+    ? `<p class="sub" style="margin-top:10px;">Review each field below. If it matches what the patient reports today, just confirm. If anything's wrong or missing, correct it — your change is logged with your name and timestamp.</p>`
+    : `<p class="sub" style="margin-top:10px;color:var(--amber);">You're signed in as a ${myRole}. You can view the full record, but only a doctor account can mark medical info as verified — fields below are read-only.</p>`;
+
+  wrap.innerHTML = `
+    <div class="card">
+      <h2>${p.full_name}</h2>
+      <p class="sub">Age ${p.age} | ${p.gender} | ${p.lifeverra_id}</p>
+      <div class="info-row"><span class="k">Blood Group</span><span class="v">${p.blood_group}</span></div>
+      <div class="info-row"><span class="k">Phone</span><span class="v">${p.phone_number || '—'}</span></div>
+      <div class="info-row"><span class="k">Emergency Contact</span><span class="v">${p.emergency_contacts.length ? p.emergency_contacts[0].name + ' - ' + p.emergency_contacts[0].phone : '—'}</span></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <h2 style="font-size:15px;margin:0;">Medical Information</h2>
+        ${trustBadge(p)}
+      </div>
+      ${roleNote}
+
+      <label>Allergies</label>
+      <input id="f_allergies" value="${(p.allergies || '').replace(/"/g,'&quot;')}" ${canVerify ? '' : 'disabled'}>
+      <label>Chronic Diseases</label>
+      <input id="f_chronic" value="${(p.chronic_diseases || '').replace(/"/g,'&quot;')}" ${canVerify ? '' : 'disabled'}>
+      <label>Current Medications</label>
+      <input id="f_meds" value="${(p.current_medications || '').replace(/"/g,'&quot;')}" ${canVerify ? '' : 'disabled'}>
+      <label>Past Surgeries</label>
+      <input id="f_surgeries" value="${(p.past_surgeries || '').replace(/"/g,'&quot;')}" ${canVerify ? '' : 'disabled'}>
+
+      <div id="verifyErr" class="error-msg" style="display:none;"></div>
+      <div id="verifyOk" class="success-msg" style="display:none;"></div>
+      ${canVerify
+        ? `<button class="btn" id="verifyBtn" onclick="submitVerification()">✓ Confirm / Save as Doctor-Verified</button>`
+        : `<p class="sub">Ask a doctor to review and sign off on this record.</p>`}
+      <div class="link-btn" onclick="loadHistory()">View edit history →</div>
+      <div id="historyBox"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:15px;">All Emergency Contacts</h2>
+      ${p.emergency_contacts.map(c => `
+        <div class="info-row"><span class="k">${c.relation}</span><span class="v">${c.name} — ${c.phone}</span></div>
+      `).join('') || '<p class="sub">None recorded</p>'}
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:15px;">Report History</h2>
+      <p class="sub">Prescriptions, lab reports and discharge summaries this patient has uploaded.</p>
+      <div id="docsBox"><p class="sub">Loading...</p></div>
+    </div>
+
+    <div class="card">
+      <p class="sub">This access has been logged to the patient's audit trail, including your name and hospital.</p>
+      <button class="btn outline" onclick="location.href='doctor-dashboard.html'">Back to Dashboard</button>
+    </div>
+  `;
+  loadDocuments();
+}
+
+async function load(){
+  const wrap = document.getElementById('wrap');
+  if(!lv){ wrap.innerHTML = '<div class="card">No LifeVerra ID provided.</div>'; return; }
+  try{
+    const me = await apiFetch('/api/doctor/me', {auth:'doctor'});
+    myRole = me.role || 'doctor';
+    const p = await apiFetch('/api/doctor/patient/' + encodeURIComponent(lv), {auth:'doctor'});
+    render(p);
+  }catch(e){
+    wrap.innerHTML = `<div class="card"><h2>Unable to load record</h2><p class="sub">${e.message}</p></div>`;
+  }
+}
+
+async function submitVerification(){
+  const err = document.getElementById('verifyErr'); hideError(err);
+  const ok = document.getElementById('verifyOk'); ok.style.display = 'none';
+  const btn = document.getElementById('verifyBtn');
+  btn.disabled = true; btn.textContent = "Saving...";
+  try{
+    const payload = {
+      allergies: document.getElementById('f_allergies').value.trim(),
+      chronic_diseases: document.getElementById('f_chronic').value.trim(),
+      current_medications: document.getElementById('f_meds').value.trim(),
+      past_surgeries: document.getElementById('f_surgeries').value.trim(),
+    };
+    const p = await apiFetch('/api/doctor/patient/' + encodeURIComponent(lv) + '/verify-medical', {method:'PUT', body: payload, auth:'doctor'});
+    render(p);
+    document.getElementById('verifyOk').textContent = 'Saved — this record is now marked doctor-verified.';
+    document.getElementById('verifyOk').style.display = 'block';
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "✓ Confirm / Save as Doctor-Verified";
+  }
+}
+
+async function loadHistory(){
+  const box = document.getElementById('historyBox');
+  box.innerHTML = '<p class="sub">Loading history...</p>';
+  try{
+    const history = await apiFetch('/api/doctor/patient/' + encodeURIComponent(lv) + '/edit-history', {auth:'doctor'});
+    if(history.length === 0){ box.innerHTML = '<p class="sub">No edits recorded yet.</p>'; return; }
+    box.innerHTML = history.slice().reverse().map(h => `
+      <div class="list-item">
+        <div>
+          <div class="title">${h.field.replace(/_/g,' ')}</div>
+          <div class="meta">"${h.old_value || '(empty)'}" → "${h.new_value || '(empty)'}"</div>
+          <div class="meta">${h.doctor} — ${h.hospital}</div>
+        </div>
+        <div class="meta">${new Date(h.timestamp).toLocaleString()}</div>
+      </div>
+    `).join('');
+  }catch(e){
+    box.innerHTML = '<p class="sub">' + e.message + '</p>';
+  }
+}
+
+async function loadDocuments(){
+  const box = document.getElementById('docsBox');
+  try{
+    const docs = await apiFetch('/api/doctor/patient/' + encodeURIComponent(lv) + '/documents', {auth:'doctor'});
+    if(!docs.length){ box.innerHTML = '<p class="sub">No reports uploaded by this patient.</p>'; return; }
+    box.innerHTML = docs.map(d => `
+      <div class="list-item">
+        <div>
+          <div class="title">${d.label || d.filename}</div>
+          <div class="meta">${new Date(d.uploaded_at).toLocaleString()} · ${d.size_kb} KB</div>
+        </div>
+        <button class="btn outline" style="margin-top:0;width:auto;" onclick="viewDoc('${d.id}')">View</button>
+      </div>
+    `).join('');
+  }catch(e){
+    box.innerHTML = `<p class="sub">${e.message}</p>`;
+  }
+}
+
+function viewDoc(docId){
+  const token = localStorage.getItem('lvr_doctor_token');
+  fetch('/api/doctor/patient/' + encodeURIComponent(lv) + '/documents/' + docId + '/file', {headers:{Authorization:'Bearer '+token}})
+    .then(r => r.blob())
+    .then(b => window.open(URL.createObjectURL(b), '_blank'));
+}
+
+load();
+</script>
+</body>
+</html>

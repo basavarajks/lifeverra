@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Update Location - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>Update Location</h1></div>
+<div class="wrap">
+  <div class="card">
+    <p class="sub">Used to sort nearby hospitals by distance. Uses your browser's GPS location, or set it manually.</p>
+    <button class="btn secondary" onclick="useDeviceLocation()" id="gpsBtn">📍 Use My Current Location</button>
+    <div id="gpsNote" class="otp-note" style="display:none;"></div>
+    <label style="margin-top:20px;">Latitude</label>
+    <input id="lat" type="number" step="0.000001">
+    <label>Longitude</label>
+    <input id="lon" type="number" step="0.000001">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <div id="ok" class="success-msg" style="display:none;"></div>
+    <button class="btn" id="saveBtn" onclick="save()">Save Location</button>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:15px;">Currently Saved</h2>
+    <div id="current">Loading...</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+renderShell('location');
+let lastAccuracy = null;
+
+async function loadCurrent(){
+  try{
+    const loc = await apiFetch('/api/patient/location');
+    const el = document.getElementById('current');
+    el.innerHTML = `
+      <div class="info-row"><span class="k">Address</span><span class="v" style="text-align:right;max-width:65%;">${loc.address || 'Not resolved yet'}</span></div>
+      <div class="info-row"><span class="k">Coordinates</span><span class="v">${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span></div>
+    `;
+  }catch(e){ /* silent */ }
+}
+loadCurrent();
+
+function useDeviceLocation(){
+  const note = document.getElementById('gpsNote');
+  note.style.display = 'none';
+  if(!window.isSecureContext){
+    note.style.display = 'block';
+    note.textContent = "Your browser is blocking GPS access because this page isn't loaded over HTTPS or localhost. Open this app via http://localhost:8000 on this device, or set up HTTPS, to use live GPS. You can still enter coordinates manually below.";
+    return;
+  }
+  if(!navigator.geolocation){
+    note.style.display = 'block';
+    note.textContent = "Geolocation isn't supported by this browser. Enter coordinates manually below.";
+    return;
+  }
+  const btn = document.getElementById('gpsBtn');
+  btn.disabled = true; btn.textContent = "Getting location...";
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('lon').value = pos.coords.longitude.toFixed(6);
+    lastAccuracy = pos.coords.accuracy;
+    note.style.display = 'block';
+    note.style.background = '#e4f7ee'; note.style.color = '#1fae6b';
+    note.textContent = `Got it — accurate to about ${Math.round(pos.coords.accuracy)}m. Tap "Save Location" to confirm.`;
+    btn.disabled = false; btn.textContent = "📍 Use My Current Location";
+  }, err => {
+    note.style.display = 'block';
+    note.style.background = '#fdf2e0'; note.style.color = '#8a5d15';
+    note.textContent = err.code === 1
+      ? "Location permission denied. Allow location access for this site in your browser settings, or enter coordinates manually."
+      : "Could not get your location: " + err.message;
+    btn.disabled = false; btn.textContent = "📍 Use My Current Location";
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+async function save(){
+  const err = document.getElementById('err'); hideError(err);
+  const ok = document.getElementById('ok'); ok.style.display = 'none';
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  if(isNaN(lat) || isNaN(lon)){ showError(err, "Enter valid coordinates, or use 'Use My Current Location' above."); return; }
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = "Saving...";
+  try{
+    const data = await apiFetch('/api/patient/location', {method:'PUT', body:{latitude: lat, longitude: lon, accuracy_m: lastAccuracy}});
+    ok.textContent = data.address ? ('Saved: ' + data.address) : 'Location saved (address lookup unavailable).';
+    ok.style.display = 'block';
+    loadCurrent();
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Save Location";
+  }
+}
+</script>
+</body>
+</html>

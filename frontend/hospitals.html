@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nearby Hospitals - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="wrap" style="padding-bottom:90px;">
+  <div class="card">
+    <h2 style="font-size:16px;">Find the right hospital, not just the closest one</h2>
+    <p class="sub">Different emergencies need different facilities — a head injury needs a trauma center and neurology, a heart attack needs cardiology and a cath lab. Pick what's happening and LifeVerra ranks hospitals by whether they can actually treat it, distance second.</p>
+
+    <p class="sub" style="margin-bottom:6px;font-weight:600;color:var(--ink);">What's the emergency?</p>
+    <div class="cond-grid" id="condGrid"></div>
+
+    <p class="sub" id="locNote" style="margin-top:14px;">Detecting your location…</p>
+    <button class="btn secondary" onclick="useLiveLocation()" id="gpsBtn">📍 Refresh Location</button>
+    <div id="deniedNote" style="display:none;" class="disclaimer-box"></div>
+  </div>
+
+  <div id="topPick"></div>
+  <div id="altHeading" style="display:none;" class="sub" style="margin:14px 4px 6px;font-weight:600;">Other nearby options</div>
+  <div id="list" class="hospital-list-grid"></div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+const isPatient = !!localStorage.getItem('lvr_patient_token');
+if(isPatient){ renderShell('hospitals'); }
+
+// Mirrors backend/triage.py's condition -> required_facilities mapping, as
+// a quick-pick shortcut for when someone needs a hospital right now and
+// doesn't have time for the full triage questionnaire.
+const CONDITIONS = [
+  {key:'general', label:'Not sure / General', facilities:['emergency']},
+  {key:'heart', label:'❤️ Chest pain / Heart attack', facilities:['emergency','cardiology','icu','cardiac_icu','cath_lab']},
+  {key:'stroke', label:'🧠 Stroke signs', facilities:['emergency','neurology','icu']},
+  {key:'trauma', label:'🤕 Head injury / Accident / Trauma', facilities:['emergency','trauma_center','neurology','icu','blood_bank']},
+  {key:'bleeding', label:'🩸 Severe bleeding', facilities:['emergency','trauma_center','blood_bank']},
+  {key:'breathing', label:'😮‍💨 Breathing difficulty', facilities:['emergency','icu']},
+  {key:'burns', label:'🔥 Severe burns', facilities:['emergency','icu','trauma_center']},
+  {key:'pregnancy', label:'🤰 Pregnancy / Childbirth', facilities:['emergency','maternity']},
+  {key:'child', label:'🧒 Child / Infant emergency', facilities:['emergency','pediatrics']},
+  {key:'seizure', label:'⚡ Seizure', facilities:['emergency','neurology']},
+];
+
+let selectedCondition = CONDITIONS[0];
+let currentLoc = null;
+
+function renderCondGrid(){
+  const grid = document.getElementById('condGrid');
+  grid.innerHTML = CONDITIONS.map(c => `
+    <button class="cond-chip ${c.key===selectedCondition.key?'active':''}" onclick="selectCondition('${c.key}')">${c.label}</button>
+  `).join('');
+}
+function selectCondition(key){
+  selectedCondition = CONDITIONS.find(c => c.key === key);
+  renderCondGrid();
+  if(currentLoc) load(currentLoc.latitude, currentLoc.longitude);
+}
+renderCondGrid();
+
+function facilityBadges(facilities, matchedLabels, missingLabels){
+  // facilities: {key: true/false/null}. We only show labels for keys the
+  // current condition actually cares about, so the card isn't noisy with
+  // every facility a hospital happens to have.
+  const req = selectedCondition.facilities;
+  return req.map(key => {
+    const label = FACILITY_LABELS[key] || key;
+    const val = facilities ? facilities[key] : null;
+    if(val === true) return `<span class="fac-pill good">✓ ${label}</span>`;
+    if(val === false) return `<span class="fac-pill bad">✕ ${label}</span>`;
+    return `<span class="fac-pill unknown">? ${label}</span>`;
+  }).join('');
+}
+const FACILITY_LABELS = {
+  emergency:'Emergency Dept', icu:'ICU', cardiology:'Cardiology', cardiac_icu:'Cardiac ICU',
+  cath_lab:'Cath Lab', trauma_center:'Trauma Center', neurology:'Neurology / Stroke',
+  pediatrics:'Pediatrics', maternity:'Maternity', blood_bank:'Blood Bank', dialysis:'Dialysis', ambulance:'Ambulance',
+};
+
+function hospitalCard(h, isTop){
+  return `
+    <div class="hospital-card ${isTop?'top-pick':''}">
+      ${isTop ? '<div class="top-pick-tag">✅ Best match for ' + selectedCondition.label.replace(/^[^\\s]+\\s/,'') + '</div>' : ''}
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <div class="name">${h.name}</div>
+        <div class="dist">${h.distance_km} km · ~${h.travel_minutes} min</div>
+      </div>
+      <div class="meta" style="color:var(--muted);font-size:12.5px;margin:4px 0;">${h.address || h.city || ''}</div>
+      ${h.reason ? `<div class="reason-note">${h.reason}</div>` : ''}
+      <div>${facilityBadges(h.facilities, h.matched_facilities, h.missing_facilities)}</div>
+      ${h.facilities_verified === false ? '<div class="unverified-note">Facility info not independently verified — call ahead to confirm.</div>' : ''}
+      <div class="row" style="margin-top:10px;">
+        <button class="btn outline" style="margin-top:0;" onclick="dialNumber('${(h.phone||'').replace(/'/g,'')}','hospital')" ${h.phone ? '' : 'disabled'}>📞 Call Hospital</button>
+        <button class="btn secondary" style="margin-top:0;" onclick="getDirections(${h.latitude},${h.longitude})">🗺️ Directions</button>
+      </div>
+    </div>`;
+}
+
+async function load(lat, lon, sourceLabel){
+  currentLoc = {latitude: lat, longitude: lon};
+  const topEl = document.getElementById('topPick');
+  const listEl = document.getElementById('list');
+  const altHeading = document.getElementById('altHeading');
+  topEl.innerHTML = 'Finding the best match…';
+  listEl.innerHTML = '';
+  altHeading.style.display = 'none';
+  document.getElementById('deniedNote').style.display = 'none';
+  if(sourceLabel) document.getElementById('locNote').textContent = sourceLabel;
+
+  try{
+    const result = await apiFetch('/api/hospitals/recommend', {
+      method: 'POST', auth: false,
+      body: {
+        latitude: lat, longitude: lon,
+        condition: selectedCondition.label.replace(/^[^\s]+\s/,''),
+        required_facilities: selectedCondition.facilities,
+      },
+    });
+    if(!result.hospital){
+      topEl.innerHTML = `<div class="disclaimer-box">${result.reason || 'No hospitals found nearby.'}</div>`;
+      return;
+    }
+    topEl.innerHTML = hospitalCard(result.hospital, true);
+    if(result.alternatives && result.alternatives.length){
+      altHeading.style.display = 'block';
+      listEl.innerHTML = result.alternatives.map(h => hospitalCard(h, false)).join('');
+    }
+  }catch(e){
+    // Fall back to the plain distance list so the page still works even
+    // if the facility-matching backend isn't reachable for some reason.
+    try{
+      const list = await apiFetch(`/api/hospitals/nearby?lat=${lat}&lon=${lon}`, {auth:false});
+      topEl.innerHTML = '';
+      listEl.innerHTML = list.map(h => hospitalCard({...h, facilities:null}, false)).join('');
+      altHeading.style.display = list.length ? 'block' : 'none';
+    }catch(e2){
+      topEl.innerHTML = `<div class="disclaimer-box">${e.message}</div>`;
+    }
+  }
+}
+
+function getDirections(lat, lon){
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`, '_blank');
+}
+
+async function init(){
+  try{
+    const loc = await getLiveLocation();
+    load(loc.latitude, loc.longitude, `Sorted for the selected emergency, from your current GPS location (±${Math.round(loc.accuracy)}m).`);
+  }catch(err){
+    document.getElementById('locNote').textContent = 'Unable to determine your current location.';
+    document.getElementById('deniedNote').style.display = 'block';
+    document.getElementById('deniedNote').textContent = err.message + ' LifeVerra will not guess a location — tap Refresh Location once access is allowed.';
+  }
+}
+
+function useLiveLocation(){
+  const btn = document.getElementById('gpsBtn');
+  btn.disabled = true; btn.textContent = "Locating...";
+  getLiveLocation().then(loc => {
+    load(loc.latitude, loc.longitude, `Sorted for the selected emergency, from your current GPS location (±${Math.round(loc.accuracy)}m).`);
+  }).catch(err => {
+    document.getElementById('deniedNote').style.display = 'block';
+    document.getElementById('deniedNote').textContent = err.message;
+  }).finally(() => {
+    btn.disabled = false; btn.textContent = "📍 Refresh Location";
+  });
+}
+
+init();
+</script>
+</body>
+</html>

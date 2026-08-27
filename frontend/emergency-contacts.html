@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Contacts - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="wrap" id="wrap">
+
+  <div class="card" id="onboardCard" style="display:none;">
+    <h2>Emergency Contacts</h2>
+    <p class="sub">Step 5 of 6 — Who should we call in an emergency?</p>
+    <div class="step-track">
+      <div class="node done">1</div><div class="seg done"></div><div class="node done">2</div><div class="seg done"></div>
+      <div class="node done">3</div><div class="seg done"></div><div class="node done">4</div><div class="seg done"></div>
+      <div class="node current">5</div><div class="seg"></div><div class="node">6</div>
+    </div>
+
+    <label>Contact 1 — Relation</label>
+    <input id="rel1" placeholder="Mother">
+    <label>Contact 1 — Name</label>
+    <input id="name1" placeholder="Full name">
+    <label>Contact 1 — Phone</label>
+    <input id="phone1" placeholder="9876543211">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+      <input type="checkbox" id="primary1" checked style="width:auto;"> Primary emergency contact
+    </label>
+
+    <label style="margin-top:20px;">Contact 2 — Relation</label>
+    <input id="rel2" placeholder="Father">
+    <label>Contact 2 — Name</label>
+    <input id="name2" placeholder="Full name">
+    <label>Contact 2 — Phone</label>
+    <input id="phone2" placeholder="9876543212">
+
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="nextBtn" onclick="saveOnboard()">Next</button>
+  </div>
+
+  <div class="card" id="manageCard" style="display:none;">
+    <h2>Emergency Contacts</h2>
+    <p class="sub">People LifeVerra can call for you in an emergency.</p>
+    <div id="contactList"></div>
+    <button class="btn secondary" onclick="showAddForm()">+ Add Contact</button>
+
+    <div id="addForm" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+      <label>Relation</label>
+      <input id="newRel" placeholder="Mother, Father, Friend...">
+      <label>Name</label>
+      <input id="newName" placeholder="Full name">
+      <label>Phone</label>
+      <input id="newPhone" placeholder="9876543210">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <input type="checkbox" id="newPrimary" style="width:auto;"> Make this the primary contact
+      </label>
+      <div id="addErr" class="error-msg" style="display:none;"></div>
+      <button class="btn" onclick="addContact()">Save Contact</button>
+      <div class="link-btn" onclick="document.getElementById('addForm').style.display='none';">Cancel</div>
+    </div>
+  </div>
+
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+let profile = null;
+
+async function init(){
+  profile = await apiFetch('/api/patient/me');
+  if(!profile.profile_complete && profile.emergency_contacts.length === 0){
+    document.getElementById('onboardCard').style.display = 'block';
+  } else {
+    renderShell('contacts');
+    document.getElementById('manageCard').style.display = 'block';
+    renderContacts();
+  }
+}
+init();
+
+async function saveOnboard(){
+  const err = document.getElementById('err'); hideError(err);
+  const contacts = [];
+  if(document.getElementById('name1').value.trim()){
+    contacts.push({
+      relation: document.getElementById('rel1').value.trim() || 'Contact 1',
+      name: document.getElementById('name1').value.trim(),
+      phone: document.getElementById('phone1').value.trim(),
+      is_primary: document.getElementById('primary1').checked,
+    });
+  }
+  if(document.getElementById('name2').value.trim()){
+    contacts.push({
+      relation: document.getElementById('rel2').value.trim() || 'Contact 2',
+      name: document.getElementById('name2').value.trim(),
+      phone: document.getElementById('phone2').value.trim(),
+      is_primary: false,
+    });
+  }
+  if(contacts.length === 0){
+    showError(err, "Add at least one emergency contact.");
+    return;
+  }
+  const btn = document.getElementById('nextBtn');
+  btn.disabled = true; btn.textContent = "Saving...";
+  try{
+    await apiFetch('/api/patient/emergency-contacts', {method:'PUT', body:{contacts}});
+    location.href = 'qr-code.html';
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = "Next";
+  }
+}
+
+function renderContacts(){
+  const list = document.getElementById('contactList');
+  if(!profile.emergency_contacts.length){
+    list.innerHTML = '<p class="sub">No emergency contacts saved yet.</p>';
+    return;
+  }
+  list.innerHTML = profile.emergency_contacts.map((c, i) => `
+    <div class="contact-card">
+      <div>
+        <div class="who">${escapeHtml(c.name)} ${c.is_primary ? '<span class="primary-badge">PRIMARY</span>' : ''}</div>
+        <div class="rel">${escapeHtml(c.relation)}</div>
+        <div class="ph">${escapeHtml(c.phone)}</div>
+      </div>
+      <div class="contact-actions">
+        <button class="icon-btn" title="Call" onclick="dialNumber('${escapeAttr(c.phone)}','${escapeAttr(c.name)}')">📞</button>
+        <button class="icon-btn" title="Remove" onclick="removeContact(${i})">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
+
+function showAddForm(){
+  document.getElementById('addForm').style.display = 'block';
+}
+
+async function addContact(){
+  const errEl = document.getElementById('addErr'); hideError(errEl);
+  const name = document.getElementById('newName').value.trim();
+  const phone = document.getElementById('newPhone').value.trim();
+  const relation = document.getElementById('newRel').value.trim();
+  if(!name || !phone){ showError(errEl, "Name and phone are required."); return; }
+  const makePrimary = document.getElementById('newPrimary').checked;
+  const updated = profile.emergency_contacts.map(c => ({...c, is_primary: makePrimary ? false : c.is_primary}));
+  updated.push({relation: relation || 'Contact', name, phone, is_primary: makePrimary || updated.length === 0});
+  try{
+    await apiFetch('/api/patient/emergency-contacts', {method:'PUT', body:{contacts: updated}});
+    profile.emergency_contacts = updated;
+    renderContacts();
+    document.getElementById('addForm').style.display = 'none';
+    document.getElementById('newName').value=''; document.getElementById('newPhone').value=''; document.getElementById('newRel').value='';
+    showToast('Contact saved.');
+  }catch(e){ showError(errEl, e.message); }
+}
+
+async function removeContact(i){
+  const updated = profile.emergency_contacts.slice();
+  updated.splice(i, 1);
+  try{
+    await apiFetch('/api/patient/emergency-contacts', {method:'PUT', body:{contacts: updated}});
+    profile.emergency_contacts = updated;
+    renderContacts();
+    showToast('Contact removed.');
+  }catch(e){ showToast(e.message); }
+}
+</script>
+</body>
+</html>

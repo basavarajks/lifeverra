@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTP Verification - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>OTP Verification</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2>Enter the 6-digit OTP</h2>
+    <p class="sub" id="sentTo">Sent to your registered contact</p>
+    <input id="otp" maxlength="6" style="letter-spacing:8px;font-size:22px;text-align:center;" placeholder="000000">
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <div class="otp-note" id="demoNote"></div>
+    <button class="btn" id="verifyBtn" onclick="verify()">Verify & Continue</button>
+    <div class="link-btn" id="resend">Resend OTP</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+const email = sessionStorage.getItem('lv_doc_email');
+if(!email){ location.href = 'doctor-login.html'; }
+document.getElementById('sentTo').textContent = 'Sent to ' + email;
+const demoOtp = sessionStorage.getItem('lv_demo_otp');
+if(demoOtp){
+  document.getElementById('demoNote').textContent =
+    'Demo mode (no SMS gateway configured): your OTP is ' + demoOtp;
+}
+
+async function verify(){
+  const code = document.getElementById('otp').value.trim();
+  const err = document.getElementById('err'); hideError(err);
+  if(code.length !== 6){ showError(err, "Enter the 6-digit code."); return; }
+  const btn = document.getElementById('verifyBtn');
+  btn.disabled = true; btn.textContent = "Verifying...";
+  try{
+    const data = await apiFetch('/api/doctor/verify-otp', {method:'POST', body:{doctor_id_email: email, code}, auth:false});
+    localStorage.setItem('lvr_doctor_token', data.token);
+    localStorage.setItem('lv_doctor_name', data.doctor_name);
+    localStorage.setItem('lv_doctor_hospital', data.hospital);
+    localStorage.setItem('lv_doctor_role', data.role || 'doctor');
+    const params = new URLSearchParams(location.search);
+    const lv = params.get('lv');
+    if(lv){
+      location.href = 'doctor-patient.html?lv=' + encodeURIComponent(lv);
+    }else{
+      location.href = 'doctor-dashboard.html';
+    }
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = "Verify & Continue";
+  }
+}
+</script>
+</body>
+</html>

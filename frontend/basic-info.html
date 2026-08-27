@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Basic Information - LifeVerra</title>
+<link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>LifeVerra</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2 id="heading">Create Your LifeVerra Medical Profile</h2>
+    <p class="sub" id="subheading">Step 3 of 6 — Personal Details</p>
+    <div class="step-track" id="stepTrack">
+      <div class="node done">1</div><div class="seg done"></div><div class="node done">2</div><div class="seg done"></div>
+      <div class="node current">3</div><div class="seg"></div><div class="node">4</div><div class="seg"></div>
+      <div class="node">5</div><div class="seg"></div><div class="node">6</div>
+    </div>
+
+    <label>Full Name</label>
+    <input id="full_name" placeholder="Supriya S A">
+    <div class="row">
+      <div>
+        <label>Date of Birth</label>
+        <input id="dob" type="date">
+      </div>
+      <div>
+        <label>Age</label>
+        <input id="age" type="number" min="0" max="120">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Gender</label>
+        <select id="gender">
+          <option>Female</option><option>Male</option><option>Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Blood Group</label>
+        <select id="blood_group">
+          <option>O+</option><option>O-</option><option>A+</option><option>A-</option>
+          <option>B+</option><option>B-</option><option>AB+</option><option>AB-</option>
+        </select>
+      </div>
+    </div>
+    <label>Address</label>
+    <input id="address" placeholder="House/Street, City, District">
+
+    <label style="margin-top:14px;">Parent / Guardian Name</label>
+    <input id="guardian_name" placeholder="e.g. Mother's or Father's name">
+    <label>Parent / Guardian Phone</label>
+    <input id="guardian_phone" placeholder="9876543210">
+
+    <div id="err" class="error-msg" style="display:none;"></div>
+    <button class="btn" id="nextBtn" onclick="next()">Next</button>
+    <div class="link-btn" id="backLink" style="display:none;" onclick="location.href='settings.html'">← Back to Profile menu</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script>
+requirePatientAuth();
+
+// Same page does double duty as basic-info's onboarding step AND the
+// "Profile" entry point from the settings menu once setup is already
+// done. Prefill from the saved profile either way, and switch the
+// framing/redirect so a returning patient edits their info instead of
+// being dropped back into the onboarding wizard with a blank step-3 form.
+let isEditMode = false;
+apiFetch('/api/patient/me').then(p => {
+  document.getElementById('full_name').value = p.full_name || '';
+  document.getElementById('dob').value = p.date_of_birth || '';
+  document.getElementById('age').value = p.age || '';
+  if(p.gender) document.getElementById('gender').value = p.gender;
+  if(p.blood_group) document.getElementById('blood_group').value = p.blood_group;
+  document.getElementById('address').value = p.address || '';
+  document.getElementById('guardian_name').value = p.guardian_name || '';
+  document.getElementById('guardian_phone').value = p.guardian_phone || '';
+
+  if(p.profile_complete){
+    isEditMode = true;
+    document.getElementById('heading').textContent = 'My Profile';
+    document.getElementById('subheading').textContent = 'Update your personal details.';
+    document.getElementById('stepTrack').style.display = 'none';
+    document.getElementById('nextBtn').textContent = 'Save Changes';
+    document.getElementById('backLink').style.display = 'block';
+  }
+}).catch(()=>{});
+
+async function next(){
+  const err = document.getElementById('err'); hideError(err);
+  const payload = {
+    full_name: document.getElementById('full_name').value.trim(),
+    date_of_birth: document.getElementById('dob').value,
+    age: parseInt(document.getElementById('age').value || '0', 10),
+    gender: document.getElementById('gender').value,
+    blood_group: document.getElementById('blood_group').value,
+    address: document.getElementById('address').value.trim(),
+    guardian_name: document.getElementById('guardian_name').value.trim(),
+    guardian_phone: document.getElementById('guardian_phone').value.trim(),
+  };
+  if(!payload.full_name || !payload.age){
+    showError(err, "Fill in at least your name and age.");
+    return;
+  }
+  const btn = document.getElementById('nextBtn');
+  btn.disabled = true; btn.textContent = "Saving...";
+  try{
+    await apiFetch('/api/patient/basic-info', {method:'PUT', body: payload});
+    location.href = isEditMode ? 'settings.html' : 'medical-info.html';
+  }catch(e){
+    showError(err, e.message);
+    btn.disabled = false; btn.textContent = isEditMode ? "Save Changes" : "Next";
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your LifeVerra QR Code</title>
+<link rel="stylesheet" href="style.css?v=15">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#0b1f3a">
+</head>
+<body>
+<div class="topbar"><div class="logo">LVR</div><h1>LifeVerra</h1></div>
+<div class="wrap">
+
+  <div class="step-track" id="stepTrack" style="display:none;">
+    <div class="node done">1</div><div class="seg done"></div><div class="node done">2</div><div class="seg done"></div>
+    <div class="node done">3</div><div class="seg done"></div><div class="node done">4</div><div class="seg done"></div>
+    <div class="node done">5</div><div class="seg done"></div><div class="node current">6</div>
+  </div>
+
+  <!-- STEP A: AI verification gate, shown until ai_cross_checked -->
+  <div class="card" id="verifyCard" style="display:none;">
+    <h2 style="font-size:16px;">Verify your medical info before your QR is created</h2>
+    <p class="sub">You've typed in your allergies, conditions, medications and surgeries. Now upload a photo of a prescription or lab report so LifeVerra's AI can double-check what you entered actually matches a real document — this catches typos before they end up on an emergency ID.</p>
+
+    <input type="file" id="fileInput" accept="image/*,application/pdf">
+    <button class="btn" id="checkBtn" onclick="runCheck()">📄 Upload &amp; Check Document</button>
+    <div class="link-btn" onclick="skipVerify()">Skip for now — generate QR without AI verification</div>
+    <div id="err" class="error-msg" style="display:none;"></div>
+  </div>
+
+  <div id="verifyResults"></div>
+
+  <!-- STEP B: QR display, shown once verified (or skipped) -->
+  <div class="card" style="text-align:center;display:none;" id="qrCard">
+    <h2>Your LifeVerra Medical ID</h2>
+    <p class="sub">Anyone can scan this in an emergency to see your critical info.</p>
+    <div id="verifiedBadgeWrap"></div>
+    <div class="qr-box">
+      <img id="qrImg" src="" alt="LifeVerra QR Code">
+      <div class="qr-id" id="idText"></div>
+    </div>
+    <button class="btn" onclick="downloadQR()">Save to Gallery</button>
+    <button class="btn outline" onclick="shareQR()">Share QR Code</button>
+    <button class="btn secondary" onclick="quickAccess()" id="quickBtn">📲 Quick Access from Home Screen</button>
+    <div id="quickHelp" class="disclaimer-box" style="display:none;"></div>
+    <button class="btn outline" onclick="downloadIdCard()">🪪 Download Printable ID Card</button>
+    <p class="sub" style="margin-top:8px;">Wallet-card sized PDF — shows only your basic info (name, age, blood group, one emergency contact) plus the QR. Print and laminate as a backup if you don't have your phone on you.</p>
+    <div class="link-btn" onclick="location.href='verify-document.html'">Verify against a new document</div>
+    <div class="link-btn" onclick="location.href='dashboard.html'">Go to Dashboard →</div>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="shell.js"></script>
+<script>
+requirePatientAuth();
+const token = localStorage.getItem('lvr_patient_token');
+const id = localStorage.getItem('lvr_patient_id');
+document.getElementById('idText').textContent = 'ID: ' + id;
+
+let lastFile = null;
+let profileComplete = false;
+const qrParams = new URLSearchParams(location.search);
+const resumeAfterEdit = qrParams.get('resume') === '1';
+
+apiFetch('/api/patient/me').then(p => {
+  profileComplete = !!p.profile_complete;
+  if(!profileComplete){
+    document.getElementById('stepTrack').style.display = 'flex';
+    document.getElementById('verifyCard').innerHTML = `
+      <h2 style="font-size:16px;">Finish your profile first</h2>
+      <p class="sub">Add your emergency contacts to complete your medical profile — then you can verify and generate your QR.</p>
+      <button class="btn" onclick="location.href='emergency-contacts.html'">Continue Setup</button>
+    `;
+    document.getElementById('verifyCard').style.display = 'block';
+    return;
+  }
+  renderShell('qr');
+  if(p.is_revoked){
+    document.getElementById('verifyResults').innerHTML = `
+      <div class="card">
+        <h2 style="font-size:15px;">🚫 This LifeVerra ID has been revoked</h2>
+        <p class="sub">You reported this card lost on ${new Date(p.revoked_at).toLocaleDateString()}. This QR code no longer shows your emergency info to anyone who scans it.</p>
+        <button class="btn outline" onclick="location.href='settings.html'">Found the card? Reactivate in Settings</button>
+      </div>`;
+    return;
+  }
+  if(resumeAfterEdit){
+    // Came back from "Edit Manually" mid-verification (see
+    // applyAiSuggestions below) - the info is already saved, so just
+    // offer to generate the QR instead of re-running the upload/AI
+    // check or silently jumping to the dashboard.
+    document.getElementById('verifyResults').innerHTML = `
+      <div class="card">
+        <h2 style="font-size:15px;">✅ Health info updated</h2>
+        <p class="sub">Your changes are saved. Generate your QR code now.</p>
+        <button class="btn" onclick="confirmAndGenerate(true)">Save &amp; Generate QR</button>
+      </div>`;
+    return;
+  }
+  if(p.ai_cross_checked || p.qr_setup_seen){
+    // Either already verified, or already been through this screen once
+    // before (verified or skipped) - don't re-prompt every single visit.
+    showQr(p);
+  } else {
+    document.getElementById('verifyCard').style.display = 'block';
+  }
+}).catch(()=>{});
+
+function showQr(p){
+  document.getElementById('verifyCard').style.display = 'none';
+  document.getElementById('qrCard').style.display = 'block';
+  const badge = document.getElementById('verifiedBadgeWrap');
+  badge.innerHTML = p && p.ai_cross_checked
+    ? '<span class="badge green" style="margin-bottom:10px;display:inline-block;">✓ AI cross-checked against your document</span>'
+    : '';
+  fetch('/api/patient/qrcode.png?base_url=' + encodeURIComponent(location.origin), {headers:{Authorization:'Bearer '+token}})
+    .then(r => r.blob())
+    .then(b => { document.getElementById('qrImg').src = URL.createObjectURL(b); });
+}
+
+function skipVerify(){
+  // Remember that this screen has been reached, even on skip, so it
+  // doesn't ask again on the next visit - only a deliberate "re-verify"
+  // action (below) should bring the upload prompt back.
+  apiFetch('/api/patient/qr-setup-seen', {method:'PUT'}).catch(()=>{});
+  showQr(null);
+}
+
+async function runCheck(){
+  const err = document.getElementById('err'); hideError(err);
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput.files[0];
+  if(!file){ showError(err, "Choose a photo of a report or prescription first."); return; }
+  lastFile = file;
+
+  const btn = document.getElementById('checkBtn');
+  btn.disabled = true; btn.textContent = "Reading document...";
+  document.getElementById('verifyResults').innerHTML = '';
+
+  try{
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/patient/document-check', {
+      method: 'POST', headers: {Authorization: 'Bearer ' + token}, body: formData,
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(res.status === 503){
+        document.getElementById('verifyResults').innerHTML = `
+          <div class="card">
+            <p class="sub">${data.detail || "AI document verification isn't available on this server right now."}</p>
+            <button class="btn" onclick="skipVerify()">Continue without verification</button>
+          </div>`;
+        return;
+      }
+      throw new Error(data.detail || 'Document check failed.');
+    }
+    if(!data.readable){
+      document.getElementById('verifyResults').innerHTML = `
+        <div class="card"><p class="sub">${data.message}</p>
+          <button class="btn outline" onclick="skipVerify()">Continue without verification</button></div>`;
+      return;
+    }
+    if(allMatched(data.field_matches)){
+      renderMatched(data, data.message ? '' : '');
+    } else {
+      // Straight to auto-correcting - no extra click needed. The person
+      // already asked LifeVerra to check the document; if something's off,
+      // fixing it IS the check, not a separate step.
+      btn.textContent = "Found differences — updating automatically...";
+      await applyAiSuggestions();
+    }
+  }catch(e){
+    showError(err, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "📄 Upload & Check Document";
+  }
+}
+
+const fieldLabels = {
+  allergies: 'Allergies', chronic_diseases: 'Chronic Diseases',
+  current_medications: 'Current Medications', past_surgeries: 'Past Surgeries',
+};
+
+function matchRows(field_matches){
+  let rows = '';
+  for(const [field, info] of Object.entries(field_matches)){
+    if(info.all_found === null){
+      rows += `<div class="info-row"><span class="k">${fieldLabels[field]}</span><span class="v" style="color:var(--muted);font-weight:400;">Nothing entered</span></div>`;
+      continue;
+    }
+    const badge = info.all_found
+      ? '<span class="badge green">✓ Matches document</span>'
+      : '<span class="badge amber">Not confirmed</span>';
+    rows += `<div class="info-row"><span class="k">${fieldLabels[field]}</span><span class="v">${badge}</span></div>`;
+  }
+  return rows;
+}
+
+function allMatched(field_matches){
+  return Object.values(field_matches).every(info => info.all_found !== false);
+}
+
+function renderMatched(data){
+  const lowConfNote = data.low_confidence
+    ? `<p class="sub" style="color:#a5713a;">⚠️ This photo was hard to read clearly — double-check the details below.</p>` : '';
+  document.getElementById('verifyResults').innerHTML = `
+    <div class="card">
+      <h2 style="font-size:15px;">✅ Everything matches</h2>
+      ${lowConfNote}
+      ${matchRows(data.field_matches)}
+      <p class="sub" style="margin-top:10px;">What you typed matches this document. Save it and your QR will be generated.</p>
+      <button class="btn" onclick="confirmAndGenerate()">Save &amp; Generate QR</button>
+    </div>`;
+}
+
+async function applyAiSuggestions(){
+  const box = document.getElementById('verifyResults');
+  box.innerHTML = `<div class="card"><p class="sub">🤖 Comparing against the document and updating any mismatched fields…</p></div>`;
+  try{
+    const formData = new FormData();
+    formData.append('file', lastFile);
+    const res = await fetch('/api/patient/document-check/auto-correct?apply=true', {
+      method: 'POST', headers: {Authorization: 'Bearer ' + token}, body: formData,
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Could not apply AI suggestions.');
+    if(!data.readable){
+      box.innerHTML = `<div class="card"><p class="sub">${data.message}</p>
+        <button class="btn outline" onclick="skipVerify()">Continue without verification</button></div>`;
+      return;
+    }
+    if(allMatched(data.field_matches)){
+      box.innerHTML = `
+        <div class="card">
+          <h2 style="font-size:15px;">✅ Updated automatically — now matches</h2>
+          <p class="sub">${data.message}</p>
+          ${matchRows(data.field_matches)}
+          <button class="btn" onclick="confirmAndGenerate()">Save &amp; Generate QR</button>
+        </div>`;
+    } else {
+      box.innerHTML = `
+        <div class="card">
+          <h2 style="font-size:15px;">Updated what it could find</h2>
+          <p class="sub">${data.message} The rest doesn't appear in this document in a recognizable form — likely handwriting OCR can't read, or it's genuinely just not in this document.</p>
+          ${matchRows(data.field_matches)}
+          <button class="btn outline" onclick="location.href='medical-info.html?next=' + encodeURIComponent('qr-code.html?resume=1')">Edit Manually</button>
+          <div class="link-btn" onclick="confirmAndGenerate(true)">Save anyway &amp; generate QR</div>
+        </div>`;
+    }
+  }catch(e){
+    box.innerHTML = `<div class="card"><p class="sub error-msg">${e.message}</p>
+      <button class="btn outline" onclick="skipVerify()">Continue without verification</button></div>`;
+  }
+}
+
+async function confirmAndGenerate(skipConfirm){
+  try{
+    if(!skipConfirm){
+      await apiFetch('/api/patient/document-check/confirm?source_filename=' + encodeURIComponent(lastFile ? lastFile.name : ''), {method:'POST'});
+    } else {
+      await apiFetch('/api/patient/qr-setup-seen', {method:'PUT'});
+    }
+    const p = await apiFetch('/api/patient/me');
+    showQr(p);
+  }catch(e){
+    alert('Could not save: ' + e.message);
+  }
+}
+
+function downloadQR(){
+  const a = document.createElement('a');
+  a.href = document.getElementById('qrImg').src;
+  a.download = 'lifeverra-qr-' + id + '.png';
+  a.click();
+}
+function shareQR(){
+  const url = location.origin + '/emergency.html?lv=' + id;
+  if(navigator.share){
+    navigator.share({title:'My LifeVerra QR', text:'Scan this in an emergency', url});
+  }else{
+    navigator.clipboard.writeText(url);
+    alert('Emergency info link copied:\n' + url);
+  }
+}
+// Capture Android/Chrome's real "install this app" prompt the moment it's
+// offered, so we can trigger it later from our own button instead of
+// waiting for the browser's own mini-infobar.
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+
+function quickAccess(){
+  const os = localStorage.getItem('lvr_os_pref');
+  if(!os){
+    const helpEl = document.getElementById('quickHelp');
+    helpEl.style.display = 'block';
+    helpEl.innerHTML = `
+      <b>Quick question first —</b> which phone do you have? LifeVerra will remember and skip this next time.
+      <div class="row" style="margin-top:10px;">
+        <button class="btn outline" style="margin-top:0;" onclick="setOsPref('android')">🤖 Android</button>
+        <button class="btn outline" style="margin-top:0;" onclick="setOsPref('iphone')">🍎 iPhone</button>
+      </div>`;
+    return;
+  }
+  runQuickAccess(os);
+}
+
+function setOsPref(os){
+  localStorage.setItem('lvr_os_pref', os);
+  runQuickAccess(os);
+}
+
+function runQuickAccess(os){
+  const helpEl = document.getElementById('quickHelp');
+  helpEl.style.display = 'block';
+  const afterNote = `Once it's on your home screen, opening LifeVerra takes you straight to your dashboard — your QR and 🚨 SOS button are both one tap away from there.`;
+
+  if(os === 'android' && deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.finally(() => { deferredInstallPrompt = null; });
+    helpEl.innerHTML = `<b>Installing LifeVerra...</b> Accept the prompt to add it to your home screen. ${afterNote}`;
+    return;
+  }
+  if(os === 'android'){
+    helpEl.innerHTML = `<b>Add LifeVerra to your home screen:</b> tap the ⋮ menu (top right of your browser) → "Add to Home screen" or "Install app". ${afterNote}`;
+  } else {
+    helpEl.innerHTML = `<b>Add LifeVerra to your home screen:</b> tap the Share icon (□↑) in Safari → "Add to Home Screen". ${afterNote}`;
+  }
+}
+async function downloadIdCard(){
+  const res = await fetch('/api/patient/id-card.pdf?base_url=' + encodeURIComponent(location.origin),
+    {headers:{Authorization:'Bearer '+token}});
+  if(!res.ok){ alert('Could not generate ID card. Try again.'); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'lifeverra-id-' + id + '.pdf';
+  a.click();
+}
+</script>
+</body>
+</html>
